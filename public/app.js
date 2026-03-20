@@ -37,19 +37,25 @@ const CONFIG = {
 
   // Discogs taste profile derived from liked.csv analysis
   // (Italian/Spanish/Latin 70s pop, Bossa, Soul, French pop, MPB)
-  DISCOGS_STYLES: ['Bossa Nova', 'Easy Listening', 'Soul', 'Chanson', 'MPB', 'Yé-yé', 'Latin'],
+  DISCOGS_STYLES: ['Bossa Nova', 'Soul', 'Chanson', 'MPB', 'Funk', 'Jazz', 'Latin', 'Exotica', 'Samba', 'Italian Pop'],
 
   // New releases — recent year filter on Discogs
   NEW_MUSIC_STYLES: ['Hip Hop', 'Boom Bap', 'Conscious', 'Abstract', 'Soul', 'Bossa Nova', 'MPB'],
 
   PROXY: '/api/proxy?url=',
-  BOOKS_API: '/api/books',
 };
 
 // ---- STATE -------------------------------------------------
 let allItems     = [];
 let currentCat   = 'all';
-let spotifyToken = null;
+
+const getDismissed = () => new Set(JSON.parse(localStorage.getItem('dismissed') || '[]'));
+function dismissItem(link) {
+  const d = getDismissed(); d.add(link);
+  localStorage.setItem('dismissed', JSON.stringify([...d]));
+  allItems = allItems.filter(i => i.link !== link);
+  renderFeed();
+}
 
 // ---- DOM refs ----------------------------------------------
 const feedEl       = document.getElementById('feed');
@@ -240,6 +246,7 @@ async function fetchMovies() {
     date: parseDate(m.release_date),
     poster: m.poster_path ? `https://image.tmdb.org/t/p/w300${m.poster_path}` : null,
     rating: Math.round(m.vote_average * 10) / 10,
+    link: `https://www.themoviedb.org/movie/${m.id}`,
     id: `movie-${m.id}`,
   }));
   (tv?.results || []).slice(0, 10).forEach(t => items.push({
@@ -250,6 +257,7 @@ async function fetchMovies() {
     date: parseDate(t.first_air_date),
     poster: t.poster_path ? `https://image.tmdb.org/t/p/w300${t.poster_path}` : null,
     rating: Math.round(t.vote_average * 10) / 10,
+    link: `https://www.themoviedb.org/tv/${t.id}`,
     id: `tv-${t.id}`,
   }));
 
@@ -260,7 +268,7 @@ async function fetchMovies() {
 //  DISCOGS — Raccomandazioni per gusto
 // ============================================================
 async function fetchDiscogs() {
-  const cached = sessionStorage.getItem('discogs');
+  const cached = sessionStorage.getItem('discogs_rare');
   if (cached) return JSON.parse(cached);
 
   const headers = {
@@ -270,34 +278,37 @@ async function fetchDiscogs() {
   const items = [];
   const seen  = new Set();
 
-  const styles = CONFIG.DISCOGS_STYLES.slice(0, 4);
-
-  for (const style of styles) {
+  // Search each style for records: most wanted first, then filter rare (few owners)
+  for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
     const data = await apiGet(
-      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=8&format=Vinyl`,
+      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=15&format=Vinyl`,
       headers
     );
     await sleep(600);
     for (const r of (data?.results || [])) {
       if (seen.has(r.id)) continue;
+      const have = r.community?.have || 0;
+      const want = r.community?.want || 0;
+      // Keep only rare records: few owners, but decent demand
+      if (have > 300 || want < 20) continue;
       seen.add(r.id);
       const cover = r.cover_image;
       if (cover?.includes('spacer')) continue;
       items.push({
-        type: 'discogs',
+        type:  'discogs',
         title: r.title,
-        year: r.year,
+        year:  r.year,
         style,
         cover: cover || null,
-        link: `https://www.discogs.com${r.uri}`,
-        want: r.community?.want || 0,
-        have: r.community?.have || 0,
-        id: `discogs-${r.id}`,
+        link:  `https://www.discogs.com${r.uri}`,
+        want,
+        have,
+        id:    `discogs-${r.id}`,
       });
     }
   }
 
-  sessionStorage.setItem('discogs', JSON.stringify(items));
+  sessionStorage.setItem('discogs_rare', JSON.stringify(items));
   return items;
 }
 
@@ -367,253 +378,20 @@ async function fetchGithub() {
 }
 
 // ============================================================
-//  BOOKS — via Netlify Function
-// ============================================================
-async function fetchBooks() {
-  try {
-    const r = await fetch(CONFIG.BOOKS_API);
-    if (!r.ok) return [];
-    return await r.json();
-  } catch (e) {
-    console.warn('Books fetch failed:', e.message);
-    return [];
-  }
-}
-
-// ============================================================
-//  SPOTIFY — Discover Weekly (PKCE OAuth — no client secret needed)
-// ============================================================
-function getSpotifyClientId() {
-  return localStorage.getItem('spotify_client_id') || '';
-}
-
-// PKCE helpers
-function b64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-function randomVerifier() {
-  const arr = new Uint8Array(32);
-  crypto.getRandomValues(arr);
-  return b64url(arr.buffer);
-}
-async function codeChallenge(verifier) {
-  const data = new TextEncoder().encode(verifier);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return b64url(hash);
-}
-
-function initSpotifyOAuth() {
-  // Handle PKCE callback: code arrives in query param, not hash
-  const params = new URLSearchParams(window.location.search);
-  const code   = params.get('code');
-  if (code) {
-    window.history.replaceState({}, '', window.location.pathname);
-    exchangeSpotifyCode(code).then(ok => {
-      if (ok) {
-        updateSpotifyBtnState();
-        fetchSpotify().then(items => {
-          allItems = [...allItems.filter(i => i.type !== 'spotify'), ...items];
-          renderFeed();
-        });
-      } else {
-        console.warn('Spotify token exchange failed');
-      }
-    });
-    return;
-  }
-
-  // Also handle legacy implicit-flow tokens still in hash (backwards compat)
-  const hash = window.location.hash;
-  if (hash.includes('access_token=')) {
-    const hp = new URLSearchParams(hash.slice(1));
-    const t  = hp.get('access_token');
-    if (t) {
-      spotifyToken = t;
-      localStorage.setItem('spotify_token', t);
-      localStorage.setItem('spotify_token_ts', Date.now());
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  }
-
-  // Restore stored token (1h TTL)
-  const stored = localStorage.getItem('spotify_token');
-  const ts     = parseInt(localStorage.getItem('spotify_token_ts') || '0');
-  if (stored && Date.now() - ts < 3_500_000) spotifyToken = stored;
-
-  updateSpotifyBtnState();
-}
-
-async function exchangeSpotifyCode(code) {
-  const clientId = getSpotifyClientId();
-  const verifier = localStorage.getItem('spotify_pkce_verifier');
-  const redirect = `${window.location.origin}${window.location.pathname}`;
-  if (!clientId || !verifier) return false;
-  try {
-    const res = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id:     clientId,
-        grant_type:    'authorization_code',
-        code,
-        redirect_uri:  redirect,
-        code_verifier: verifier,
-      }),
-    });
-    const data = await res.json();
-    if (data.access_token) {
-      spotifyToken = data.access_token;
-      localStorage.setItem('spotify_token', data.access_token);
-      localStorage.setItem('spotify_token_ts', Date.now());
-      localStorage.removeItem('spotify_pkce_verifier');
-      return true;
-    }
-    console.warn('Spotify exchange error:', data);
-    return false;
-  } catch (e) {
-    console.error('Spotify exchange exception:', e);
-    return false;
-  }
-}
-
-function updateSpotifyBtnState() {
-  const disconnectBtn = document.getElementById('disconnect-spotify-btn');
-  const connectBtn    = document.getElementById('connect-spotify-btn');
-  if (spotifyToken) {
-    connectBtn?.classList.add('hidden');
-    disconnectBtn?.classList.remove('hidden');
-  } else {
-    connectBtn?.classList.remove('hidden');
-    disconnectBtn?.classList.add('hidden');
-  }
-}
-
-async function connectSpotify() {
-  const clientId = document.getElementById('spotify-client-id')?.value.trim()
-                || getSpotifyClientId();
-  if (!clientId) {
-    setFeedback('spotify-feedback', 'Inserisci il Client ID Spotify', 'err');
-    return;
-  }
-  localStorage.setItem('spotify_client_id', clientId);
-
-  const verifier   = randomVerifier();
-  const challenge  = await codeChallenge(verifier);
-  localStorage.setItem('spotify_pkce_verifier', verifier);
-
-  const redirect = `${window.location.origin}${window.location.pathname}`;
-  const scopes   = 'playlist-read-private playlist-read-collaborative';
-  const url = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({
-    client_id:             clientId,
-    response_type:         'code',
-    redirect_uri:          redirect,
-    scope:                 scopes,
-    code_challenge_method: 'S256',
-    code_challenge:        challenge,
-  });
-  window.location.href = url;
-}
-
-function disconnectSpotify() {
-  spotifyToken = null;
-  localStorage.removeItem('spotify_token');
-  localStorage.removeItem('spotify_token_ts');
-  updateSpotifyBtnState();
-  // Remove spotify cards from feed
-  allItems = allItems.filter(i => i.type !== 'spotify');
-  renderFeed();
-}
-
-async function fetchSpotify() {
-  if (!spotifyToken) return [];
-
-  const auth = { 'Authorization': `Bearer ${spotifyToken}` };
-
-  const spGet = async (url) => {
-    try {
-      const r = await fetch(url, { headers: auth });
-      if (r.status === 401) {
-        spotifyToken = null;
-        localStorage.removeItem('spotify_token');
-        updateSpotifyBtnState();
-        return null;
-      }
-      if (!r.ok) { console.warn('Spotify API error', r.status, url); return null; }
-      return r.json();
-    } catch (e) { console.warn('Spotify fetch error:', e.message); return null; }
-  };
-
-  // Collect all user playlists
-  const playlists = [];
-  let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
-  while (nextUrl) {
-    const page = await spGet(nextUrl);
-    if (!page?.items) break;
-    playlists.push(...page.items.filter(p => p && p.name));
-    nextUrl = page.next || null;
-  }
-
-  if (!playlists.length) return [];
-
-  // For each playlist return a card (fetch tracks only for first 5 to limit API calls)
-  const items = [];
-  for (let i = 0; i < playlists.length; i++) {
-    const pl = playlists[i];
-    let tracks = [];
-    if (i < 5) {
-      const t = await spGet(`https://api.spotify.com/v1/playlists/${pl.id}/tracks?limit=10&fields=items(track(name,artists,album(images),external_urls))`);
-      tracks = (t?.items || [])
-        .filter(x => x.track)
-        .map((x, idx) => ({
-          num:    idx + 1,
-          name:   x.track.name,
-          artist: x.track.artists?.map(a => a.name).join(', '),
-          art:    x.track.album?.images?.[2]?.url || x.track.album?.images?.[0]?.url,
-          link:   x.track.external_urls?.spotify,
-        }));
-    }
-    items.push({
-      type:     'spotify',
-      title:    pl.name,
-      subtitle: `${pl.tracks?.total || 0} tracce`,
-      cover:    pl.images?.[0]?.url || null,
-      tracks,
-      link:     pl.external_urls?.spotify || '#',
-      date:     new Date().toISOString(),
-      id:       pl.id,
-    });
-  }
-
-  return items;
-}
-
-function saveManualSpotifyPlaylist() {
-  const input = document.getElementById('spotify-playlist-url');
-  const raw = input?.value.trim();
-  if (!raw) { setFeedback('spotify-feedback', 'Inserisci un URL', 'err'); return; }
-  // Accept full URL or bare ID
-  const m = raw.match(/playlist\/([A-Za-z0-9]+)/);
-  const id = m ? m[1] : (raw.match(/^[A-Za-z0-9]{22}$/) ? raw : null);
-  if (!id) { setFeedback('spotify-feedback', 'URL non valido', 'err'); return; }
-  localStorage.setItem('spotify_dw_id', id);
-  setFeedback('spotify-feedback', '✓ Playlist salvata. Aggiorna il feed.', 'ok');
-  if (input) input.value = '';
-}
-
-// ============================================================
 //  CARD RENDERERS
 // ============================================================
+function dismissBtn(link) {
+  return `<button class="dismiss-btn" onclick="event.preventDefault();dismissItem(${JSON.stringify(link)})" title="Nascondi">×</button>`;
+}
+
 function renderCard(item) {
   switch (item.type) {
     case 'youtube':  return renderYouTube(item);
     case 'web':      return renderWeb(item);
     case 'newmusic': return renderNewMusic(item);
     case 'movie':    return renderMovie(item);
-    case 'book':     return renderBook(item);
     case 'github':   return renderGithub(item);
     case 'discogs':  return renderDiscogs(item);
-    case 'spotify':  return renderSpotify(item);
     default:         return '';
   }
 }
@@ -629,6 +407,7 @@ function renderYouTube(item) {
       <span class="card-tag tag-youtube">▶ ${esc(item.channel)}</span>
       <h3 class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
       <span class="card-date">${fmtDate(item.date)}</span>
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -645,6 +424,7 @@ function renderWeb(item) {
       <h3 class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
       ${item.snippet ? `<p class="card-snippet">${esc(item.snippet)}</p>` : ''}
       <span class="card-date">${fmtDate(item.date)}</span>
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -661,6 +441,7 @@ function renderNewMusic(item) {
       <h3 class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
       ${item.snippet ? `<p class="card-snippet">${esc(item.snippet)}</p>` : ''}
       <span class="card-date">${fmtDate(item.date)}</span>
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -680,23 +461,7 @@ function renderMovie(item) {
         <span class="card-date">${item.date?.slice(0,4) || ''}</span>
       </div>
       ${item.overview ? `<p class="card-snippet">${esc(item.overview)}</p>` : ''}
-    </div>
-  </article>`;
-}
-
-function renderBook(item) {
-  const cover = item.cover
-    ? `<img src="${item.cover}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='<div class=no-cover>📚</div>'">`
-    : `<div class="no-cover">📚</div>`;
-  return `
-  <article class="card card-poster-row" data-type="book">
-    <div class="card-poster" style="height:140px">${cover}</div>
-    <div class="card-body">
-      <span class="card-tag tag-book">${esc(item.category)}</span>
-      <h3 class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
-      ${item.author ? `<p class="card-author">${esc(item.author)}</p>` : ''}
-      ${item.year   ? `<span class="card-date">${item.year}</span>` : ''}
-      ${item.language ? `<span class="card-date">${esc(item.language)}</span>` : ''}
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -715,6 +480,7 @@ function renderGithub(item) {
         <span class="card-date">${fmtDate(item.date)}</span>
       </div>
       ${topics ? `<div class="topics">${topics}</div>` : ''}
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -733,6 +499,7 @@ function renderDiscogs(item) {
         ${item.year ? `<span>${item.year}</span>` : ''}
         <span class="want">♥ ${item.want}</span>
       </div>
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -751,35 +518,7 @@ function renderNewMusicDiscogs(item) {
         ${item.year ? `<span>${item.year}</span>` : ''}
         <span class="want">♥ ${item.want}</span>
       </div>
-    </div>
-  </article>`;
-}
-
-function renderSpotify(item) {
-  const trackRows = (item.tracks || []).map(t => `
-    <a class="track-item" href="${t.link || '#'}" target="_blank" rel="noopener">
-      <span class="track-num">${t.num}</span>
-      ${t.art ? `<img class="track-art" src="${t.art}" alt="" loading="lazy">` : '<div class="track-art" style="background:#1a1a1a"></div>'}
-      <div class="track-info">
-        <div class="track-name">${esc(t.name)}</div>
-        <div class="track-artist">${esc(t.artist)}</div>
-      </div>
-    </a>`).join('');
-
-  const coverHtml = item.cover
-    ? `<div class="card-poster" style="height:120px;flex-shrink:0"><img src="${item.cover}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover"></div>`
-    : '';
-
-  return `
-  <article class="card card-poster-row" data-type="spotify">
-    ${coverHtml}
-    <div style="flex:1;min-width:0">
-      <div class="card-body">
-        <span class="card-tag tag-spotify">♫ Spotify</span>
-        <h3 class="card-title"><a href="${item.link || '#'}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
-        <p class="card-snippet">${esc(item.subtitle)}</p>
-      </div>
-      ${trackRows ? `<div class="track-list">${trackRows}</div>` : ''}
+      ${dismissBtn(item.link)}
     </div>
   </article>`;
 }
@@ -819,9 +558,9 @@ function updateTabCounts() {
 function renderFeed() {
   updateTabCounts();
 
-  const items = currentCat === 'all'
-    ? allItems
-    : allItems.filter(i => i.type === currentCat);
+  const dismissed = getDismissed();
+  const items = (currentCat === 'all' ? allItems : allItems.filter(i => i.type === currentCat))
+    .filter(i => !dismissed.has(i.link));
 
   if (items.length === 0) {
     feedEl.innerHTML = `<div class="empty-state"><p>Nessun contenuto${currentCat !== 'all' ? ' in questa categoria' : ''}.</p></div>`;
@@ -829,7 +568,7 @@ function renderFeed() {
   }
 
   // Group by type for section headings
-  const typeOrder = ['youtube','spotify','newmusic','web','discogs','movie','book','github'];
+  const typeOrder = ['youtube','newmusic','web','discogs','movie','github'];
   const grouped   = {};
   items.forEach(it => { (grouped[it.type] = grouped[it.type] || []).push(it); });
 
@@ -838,7 +577,7 @@ function renderFeed() {
     typeOrder.forEach(type => {
       const group = grouped[type];
       if (!group?.length) return;
-      const labels = { youtube:'Video', web:'Blog & Notizie', newmusic:'Nuove Uscite Musicali', discogs:'Dischi Consigliati', movie:'Film & Serie', book:'Libri', github:'GitHub Trending', spotify:'Discover Weekly' };
+      const labels = { youtube:'Video', web:'Blog & Notizie', newmusic:'Nuove Uscite Musicali', discogs:'Rarità Consigliate', movie:'Film & Serie', github:'GitHub Trending' };
       html += `<div class="section-heading">${labels[type] || type}</div>`;
       group.forEach(item => {
         html += type === 'newmusic' && item.cover && !item.image
@@ -869,11 +608,9 @@ async function loadAll() {
       fetchYoutube(),
       fetchRSSFeeds(),
       fetchMovies(),
-      fetchBooks(),
       fetchGithub(),
       fetchDiscogs(),
       fetchNewMusic(),
-      fetchSpotify(),
     ]);
 
     allItems = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
@@ -891,7 +628,6 @@ async function loadAll() {
 function openPanel() {
   panel.classList.add('open');
   panelOverlay.classList.add('visible');
-  document.getElementById('redirect-uri-display').textContent = window.location.origin + window.location.pathname;
   renderSourcesList();
 }
 
@@ -948,6 +684,14 @@ async function addYouTubeChannel() {
   input.value = '';
   btn.disabled = false; btn.textContent = 'Aggiungi canale';
   renderSourcesList();
+
+  // Immediately fetch and show the new channel's videos
+  const feedXml = await proxyFetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
+  if (feedXml) {
+    const newItems = parseRSS(feedXml, name, 'youtube');
+    allItems = [...newItems, ...allItems];
+    renderFeed();
+  }
 }
 
 async function addRSSFeed() {
@@ -976,6 +720,11 @@ async function addRSSFeed() {
   urlInput.value = ''; nameInput.value = '';
   document.getElementById('add-rss-btn').disabled = false;
   renderSourcesList();
+
+  // Immediately show the new feed's items without requiring a full refresh
+  const newItems = parseRSS(xml, name, 'web');
+  allItems = [...newItems, ...allItems];
+  renderFeed();
 }
 
 function renderSourcesList() {
@@ -1041,7 +790,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function initEvents() {
   // Refresh
   refreshBtn.addEventListener('click', () => {
-    sessionStorage.removeItem('discogs');
+    sessionStorage.removeItem('discogs_rare');
     sessionStorage.removeItem('newmusic');
     loadAll();
   });
@@ -1078,28 +827,16 @@ function initEvents() {
   // Add RSS
   document.getElementById('add-rss-btn')?.addEventListener('click', addRSSFeed);
 
-  // Spotify
-  document.getElementById('connect-spotify-btn')?.addEventListener('click', () => connectSpotify());
-  document.getElementById('disconnect-spotify-btn')?.addEventListener('click', disconnectSpotify);
-
-  // Pre-fill saved client id
-  const savedClientId = getSpotifyClientId();
-  if (savedClientId) {
-    const inp = document.getElementById('spotify-client-id');
-    if (inp) inp.value = savedClientId;
-  }
-
   // Expose globals for inline onclick handlers
-  window.loadYTEmbed              = loadYTEmbed;
-  window.removeCustom             = removeCustom;
-  window.saveManualSpotifyPlaylist = saveManualSpotifyPlaylist;
+  window.loadYTEmbed  = loadYTEmbed;
+  window.removeCustom = removeCustom;
+  window.dismissItem  = dismissItem;
 }
 
 // ============================================================
 //  BOOT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
-  initSpotifyOAuth();
   initEvents();
   loadAll();
 });
