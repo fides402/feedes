@@ -545,35 +545,53 @@ async function fetchSpotify() {
     } catch (e) { console.warn('Spotify fetch error:', e.message); return null; }
   };
 
-  // Paginate through user playlists to find Discover Weekly
-  const dwNames = ['discover weekly', 'scoperte della settimana',
-                   'découvertes de la semaine', 'entdeckungen der woche'];
-  let dwPlaylist = null;
-  let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
+  let playlistId = null;
 
-  while (nextUrl && !dwPlaylist) {
-    const page = await spGet(nextUrl);
-    if (!page?.items) break;
-    dwPlaylist = page.items.find(p =>
-      dwNames.includes(p.name?.toLowerCase()) ||
-      (p.owner?.id === 'spotify' && /week/i.test(p.name))
-    );
-    nextUrl = page.next || null;
+  // 1. Check for manually saved playlist ID/URL
+  const manualId = localStorage.getItem('spotify_dw_id');
+  if (manualId) {
+    playlistId = manualId;
+  } else {
+    // 2. Auto-search through user's playlists
+    const dwNames = ['discover weekly', 'scoperte della settimana',
+                     'découvertes de la semaine', 'entdeckungen der woche',
+                     'wöchentliche entdeckungen', 'descubrimiento semanal'];
+    let dwPlaylist = null;
+    let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
+    const foundNames = [];
+
+    while (nextUrl && !dwPlaylist) {
+      const page = await spGet(nextUrl);
+      if (!page?.items) break;
+      page.items.forEach(p => { if (p.name) foundNames.push(p.name); });
+      dwPlaylist = page.items.find(p =>
+        dwNames.includes(p.name?.toLowerCase()) ||
+        (p.owner?.id === 'spotify' && /discover.?weekly|weekly.?discover/i.test(p.name))
+      );
+      nextUrl = page.next || null;
+    }
+
+    if (dwPlaylist) {
+      playlistId = dwPlaylist.id;
+    } else {
+      const nameList = foundNames.slice(0, 8).join(', ');
+      setFeedback('spotify-feedback',
+        `Discover Weekly non trovata. Playlist trovate: ${nameList || 'nessuna'}. ` +
+        `Incolla il link diretto della playlist nel campo qui sotto.`, 'err');
+      return [];
+    }
   }
 
-  if (!dwPlaylist) {
-    setFeedback('spotify-feedback',
-      'Discover Weekly non trovata. Apri Spotify e assicurati di avere la playlist nella libreria.', 'err');
-    return [];
-  }
+  const [meta, tracks] = await Promise.all([
+    spGet(`https://api.spotify.com/v1/playlists/${playlistId}?fields=id,name,external_urls`),
+    spGet(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=30`),
+  ]);
 
-  const tracks = await spGet(
-    `https://api.spotify.com/v1/playlists/${dwPlaylist.id}/tracks?limit=30`
-  );
+  if (!meta) return [];
 
   return [{
     type: 'spotify',
-    title: dwPlaylist.name,
+    title: meta.name || 'Discover Weekly',
     subtitle: `${tracks?.items?.length || 0} tracce · aggiornata ogni lunedì`,
     tracks: (tracks?.items || [])
       .filter(i => i.track)
@@ -585,10 +603,23 @@ async function fetchSpotify() {
         art:    i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url,
         link:   i.track.external_urls?.spotify,
       })),
-    link:  dwPlaylist.external_urls?.spotify || '#',
+    link:  meta.external_urls?.spotify || '#',
     date:  new Date().toISOString(),
     id:    'spotify-dw',
   }];
+}
+
+function saveManualSpotifyPlaylist() {
+  const input = document.getElementById('spotify-playlist-url');
+  const raw = input?.value.trim();
+  if (!raw) { setFeedback('spotify-feedback', 'Inserisci un URL', 'err'); return; }
+  // Accept full URL or bare ID
+  const m = raw.match(/playlist\/([A-Za-z0-9]+)/);
+  const id = m ? m[1] : (raw.match(/^[A-Za-z0-9]{22}$/) ? raw : null);
+  if (!id) { setFeedback('spotify-feedback', 'URL non valido', 'err'); return; }
+  localStorage.setItem('spotify_dw_id', id);
+  setFeedback('spotify-feedback', '✓ Playlist salvata. Aggiorna il feed.', 'ok');
+  if (input) input.value = '';
 }
 
 // ============================================================
@@ -1073,8 +1104,9 @@ function initEvents() {
   }
 
   // Expose globals for inline onclick handlers
-  window.loadYTEmbed   = loadYTEmbed;
-  window.removeCustom  = removeCustom;
+  window.loadYTEmbed              = loadYTEmbed;
+  window.removeCustom             = removeCustom;
+  window.saveManualSpotifyPlaylist = saveManualSpotifyPlaylist;
 }
 
 // ============================================================
