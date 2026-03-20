@@ -17,10 +17,8 @@ exports.handler = async () => {
     { name: 'Self-Help',  term: 'crescita personale motivazione benessere', lang: 'it' },
   ];
 
-  const now      = new Date();
-  const thisYear = now.getFullYear();
-  const lastMonth= now.getMonth() === 0 ? `${thisYear - 1}-12` : `${thisYear}-${String(now.getMonth()).padStart(2,'0')}`;
-  const fromYear = thisYear; // only current year
+  const thisYear = new Date().getFullYear();
+  const fromYear = thisYear - 1; // include last year + current year
 
   const results = await Promise.allSettled(
     queries.map(async (q) => {
