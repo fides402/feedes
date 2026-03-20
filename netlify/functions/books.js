@@ -8,12 +8,12 @@ exports.handler = async () => {
   const LIBGEN = 'https://libgen.la';
 
   const queries = [
-    { name: 'Business',   term: 'business management strategy', lang: 'English' },
-    { name: 'Business',   term: 'economia aziendale',            lang: 'Italian' },
-    { name: 'Psicologia', term: 'psychology behavior mind',      lang: 'English' },
-    { name: 'Psicologia', term: 'psicologia mente',              lang: 'Italian' },
-    { name: 'Self-Help',  term: 'self help personal development',lang: 'English' },
-    { name: 'Self-Help',  term: 'crescita personale benessere',  lang: 'Italian' },
+    { name: 'Business',   term: 'leadership productivity success business', lang: 'English' },
+    { name: 'Business',   term: 'leadership produttività successo business', lang: 'Italian' },
+    { name: 'Psicologia', term: 'psychology habits happiness influence',     lang: 'English' },
+    { name: 'Psicologia', term: 'psicologia felicità abitudini influenza',   lang: 'Italian' },
+    { name: 'Self-Help',  term: 'self help motivation habits mindset',       lang: 'English' },
+    { name: 'Self-Help',  term: 'motivazione abitudini mindset crescita',    lang: 'Italian' },
   ];
 
   const hdrs = {
@@ -105,6 +105,9 @@ exports.handler = async () => {
 
       // Skip djvu / chm (poor formats for reading)
       if (ext === 'djvu' || ext === 'chm') continue;
+
+      // Skip wrong-language results (libgen's language filter is not strict)
+      if (language.toLowerCase() !== lang.toLowerCase()) continue;
 
       // --- COVER --- requires libgen internal ID (from "l NNNNN" badge in cell 0)
       // Badge HTML: <span class="badge badge-secondary"">l 5191331</span>
