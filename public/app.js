@@ -530,7 +530,6 @@ async function fetchSpotify() {
 
   const auth = { 'Authorization': `Bearer ${spotifyToken}` };
 
-  // Raw fetch helper that returns JSON or null, and handles 401
   const spGet = async (url) => {
     try {
       const r = await fetch(url, { headers: auth });
@@ -545,68 +544,48 @@ async function fetchSpotify() {
     } catch (e) { console.warn('Spotify fetch error:', e.message); return null; }
   };
 
-  let playlistId = null;
-
-  // 1. Check for manually saved playlist ID/URL
-  const manualId = localStorage.getItem('spotify_dw_id');
-  if (manualId) {
-    playlistId = manualId;
-  } else {
-    // 2. Auto-search through user's playlists
-    const dwNames = ['discover weekly', 'scoperte della settimana',
-                     'découvertes de la semaine', 'entdeckungen der woche',
-                     'wöchentliche entdeckungen', 'descubrimiento semanal'];
-    let dwPlaylist = null;
-    let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
-    const foundNames = [];
-
-    while (nextUrl && !dwPlaylist) {
-      const page = await spGet(nextUrl);
-      if (!page?.items) break;
-      page.items.forEach(p => { if (p.name) foundNames.push(p.name); });
-      dwPlaylist = page.items.find(p =>
-        dwNames.includes(p.name?.toLowerCase()) ||
-        (p.owner?.id === 'spotify' && /discover.?weekly|weekly.?discover/i.test(p.name))
-      );
-      nextUrl = page.next || null;
-    }
-
-    if (dwPlaylist) {
-      playlistId = dwPlaylist.id;
-    } else {
-      const nameList = foundNames.slice(0, 8).join(', ');
-      setFeedback('spotify-feedback',
-        `Discover Weekly non trovata. Playlist trovate: ${nameList || 'nessuna'}. ` +
-        `Incolla il link diretto della playlist nel campo qui sotto.`, 'err');
-      return [];
-    }
+  // Collect all user playlists
+  const playlists = [];
+  let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
+  while (nextUrl) {
+    const page = await spGet(nextUrl);
+    if (!page?.items) break;
+    playlists.push(...page.items.filter(p => p && p.name));
+    nextUrl = page.next || null;
   }
 
-  const [meta, tracks] = await Promise.all([
-    spGet(`https://api.spotify.com/v1/playlists/${playlistId}?fields=id,name,external_urls`),
-    spGet(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=30`),
-  ]);
+  if (!playlists.length) return [];
 
-  if (!meta) return [];
+  // For each playlist return a card (fetch tracks only for first 5 to limit API calls)
+  const items = [];
+  for (let i = 0; i < playlists.length; i++) {
+    const pl = playlists[i];
+    let tracks = [];
+    if (i < 5) {
+      const t = await spGet(`https://api.spotify.com/v1/playlists/${pl.id}/tracks?limit=10&fields=items(track(name,artists,album(images),external_urls))`);
+      tracks = (t?.items || [])
+        .filter(x => x.track)
+        .map((x, idx) => ({
+          num:    idx + 1,
+          name:   x.track.name,
+          artist: x.track.artists?.map(a => a.name).join(', '),
+          art:    x.track.album?.images?.[2]?.url || x.track.album?.images?.[0]?.url,
+          link:   x.track.external_urls?.spotify,
+        }));
+    }
+    items.push({
+      type:     'spotify',
+      title:    pl.name,
+      subtitle: `${pl.tracks?.total || 0} tracce`,
+      cover:    pl.images?.[0]?.url || null,
+      tracks,
+      link:     pl.external_urls?.spotify || '#',
+      date:     new Date().toISOString(),
+      id:       pl.id,
+    });
+  }
 
-  return [{
-    type: 'spotify',
-    title: meta.name || 'Discover Weekly',
-    subtitle: `${tracks?.items?.length || 0} tracce · aggiornata ogni lunedì`,
-    tracks: (tracks?.items || [])
-      .filter(i => i.track)
-      .slice(0, 20)
-      .map((i, idx) => ({
-        num:    idx + 1,
-        name:   i.track.name,
-        artist: i.track.artists?.map(a => a.name).join(', '),
-        art:    i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url,
-        link:   i.track.external_urls?.spotify,
-      })),
-    link:  meta.external_urls?.spotify || '#',
-    date:  new Date().toISOString(),
-    id:    'spotify-dw',
-  }];
+  return items;
 }
 
 function saveManualSpotifyPlaylist() {
@@ -777,7 +756,7 @@ function renderNewMusicDiscogs(item) {
 }
 
 function renderSpotify(item) {
-  const trackRows = item.tracks.map(t => `
+  const trackRows = (item.tracks || []).map(t => `
     <a class="track-item" href="${t.link || '#'}" target="_blank" rel="noopener">
       <span class="track-num">${t.num}</span>
       ${t.art ? `<img class="track-art" src="${t.art}" alt="" loading="lazy">` : '<div class="track-art" style="background:#1a1a1a"></div>'}
@@ -787,14 +766,21 @@ function renderSpotify(item) {
       </div>
     </a>`).join('');
 
+  const coverHtml = item.cover
+    ? `<div class="card-poster" style="height:120px;flex-shrink:0"><img src="${item.cover}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover"></div>`
+    : '';
+
   return `
-  <article class="card card-spotify" data-type="spotify" style="grid-column: span 1">
-    <div class="card-body">
-      <span class="card-tag tag-spotify">♫ Spotify</span>
-      <h3 class="card-title"><a href="${item.link || '#'}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
-      <p class="card-snippet">${esc(item.subtitle)}</p>
+  <article class="card card-poster-row" data-type="spotify">
+    ${coverHtml}
+    <div style="flex:1;min-width:0">
+      <div class="card-body">
+        <span class="card-tag tag-spotify">♫ Spotify</span>
+        <h3 class="card-title"><a href="${item.link || '#'}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
+        <p class="card-snippet">${esc(item.subtitle)}</p>
+      </div>
+      ${trackRows ? `<div class="track-list">${trackRows}</div>` : ''}
     </div>
-    <div class="track-list">${trackRows}</div>
   </article>`;
 }
 
