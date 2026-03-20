@@ -278,10 +278,11 @@ async function fetchDiscogs() {
   const items = [];
   const seen  = new Set();
 
-  // Search each style for records: most wanted first, then filter rare (few owners)
+  // Sort by have ascending (fewest copies in collections = rarest)
+  // Keep records with have 5–500 and want > 5 (desired but hard to find)
   for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
     const data = await apiGet(
-      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=15&format=Vinyl`,
+      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=have&sort_order=asc&per_page=25&format=Vinyl`,
       headers
     );
     await sleep(600);
@@ -289,8 +290,8 @@ async function fetchDiscogs() {
       if (seen.has(r.id)) continue;
       const have = r.community?.have || 0;
       const want = r.community?.want || 0;
-      // Keep only rare records: few owners, but decent demand
-      if (have > 300 || want < 20) continue;
+      // Rare: few owners (5–500), at least a handful of people want it
+      if (have < 5 || have > 500 || want < 5) continue;
       seen.add(r.id);
       const cover = r.cover_image;
       if (cover?.includes('spacer')) continue;
