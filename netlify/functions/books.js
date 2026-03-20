@@ -109,6 +109,9 @@ exports.handler = async () => {
       // Skip wrong-language results (libgen's language filter is not strict)
       if (language.toLowerCase() !== lang.toLowerCase()) continue;
 
+      // Skip entries with no year — usually academic theses/papers
+      if (!year) continue;
+
       // --- COVER --- requires libgen internal ID (from "l NNNNN" badge in cell 0)
       // Badge HTML: <span class="badge badge-secondary"">l 5191331</span>
       const idM = cell0.match(/\bl\s+(\d+)\b/);
