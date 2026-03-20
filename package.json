@@ -1,0 +1,16 @@
+{
+  "name": "feedes",
+  "version": "1.0.0",
+  "description": "FEEDES — Personal RSS aggregator",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo 'Static app — no build step needed'"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
