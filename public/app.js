@@ -536,50 +536,66 @@ function disconnectSpotify() {
 async function fetchSpotify() {
   if (!spotifyToken) return [];
 
-  try {
-    // Find Discover Weekly playlist
-    const plData = await apiGet(
-      'https://api.spotify.com/v1/me/playlists?limit=50',
-      { 'Authorization': `Bearer ${spotifyToken}` }
-    );
-    const dw = plData?.items?.find(p => p.name === 'Discover Weekly');
-    if (!dw) return [];
+  const auth = { 'Authorization': `Bearer ${spotifyToken}` };
 
-    // Fetch tracks
-    const tracks = await apiGet(
-      `https://api.spotify.com/v1/playlists/${dw.id}/tracks?limit=30`,
-      { 'Authorization': `Bearer ${spotifyToken}` }
-    );
+  // Raw fetch helper that returns JSON or null, and handles 401
+  const spGet = async (url) => {
+    try {
+      const r = await fetch(url, { headers: auth });
+      if (r.status === 401) {
+        spotifyToken = null;
+        localStorage.removeItem('spotify_token');
+        updateSpotifyBtnState();
+        return null;
+      }
+      if (!r.ok) { console.warn('Spotify API error', r.status, url); return null; }
+      return r.json();
+    } catch (e) { console.warn('Spotify fetch error:', e.message); return null; }
+  };
 
-    const date = dw.snapshot_id ? new Date().toISOString() : new Date().toISOString();
-    return [{
-      type: 'spotify',
-      title: 'Discover Weekly',
-      subtitle: `${tracks?.items?.length || 0} tracce · aggiornata lunedì`,
-      tracks: (tracks?.items || [])
-        .filter(i => i.track)
-        .slice(0, 20)
-        .map((i, idx) => ({
-          num:    idx + 1,
-          name:   i.track.name,
-          artist: i.track.artists?.map(a => a.name).join(', '),
-          art:    i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url,
-          link:   i.track.external_urls?.spotify,
-        })),
-      link:  dw.external_urls?.spotify,
-      date,
-      id: 'spotify-dw',
-    }];
-  } catch (e) {
-    if (e.message.includes('401')) {
-      // Token expired
-      spotifyToken = null;
-      localStorage.removeItem('spotify_token');
-      updateSpotifyBtnState();
-    }
-    console.warn('Spotify error:', e.message);
+  // Paginate through user playlists to find Discover Weekly
+  const dwNames = ['discover weekly', 'scoperte della settimana',
+                   'découvertes de la semaine', 'entdeckungen der woche'];
+  let dwPlaylist = null;
+  let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
+
+  while (nextUrl && !dwPlaylist) {
+    const page = await spGet(nextUrl);
+    if (!page?.items) break;
+    dwPlaylist = page.items.find(p =>
+      dwNames.includes(p.name?.toLowerCase()) ||
+      (p.owner?.id === 'spotify' && /week/i.test(p.name))
+    );
+    nextUrl = page.next || null;
+  }
+
+  if (!dwPlaylist) {
+    console.warn('Discover Weekly not found. Available playlists: check console.');
     return [];
   }
+
+  const tracks = await spGet(
+    `https://api.spotify.com/v1/playlists/${dwPlaylist.id}/tracks?limit=30`
+  );
+
+  return [{
+    type: 'spotify',
+    title: dwPlaylist.name,
+    subtitle: `${tracks?.items?.length || 0} tracce · aggiornata ogni lunedì`,
+    tracks: (tracks?.items || [])
+      .filter(i => i.track)
+      .slice(0, 20)
+      .map((i, idx) => ({
+        num:    idx + 1,
+        name:   i.track.name,
+        artist: i.track.artists?.map(a => a.name).join(', '),
+        art:    i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url,
+        link:   i.track.external_urls?.spotify,
+      })),
+    link:  dwPlaylist.external_urls?.spotify || '#',
+    date:  new Date().toISOString(),
+    id:    'spotify-dw',
+  }];
 }
 
 // ============================================================
