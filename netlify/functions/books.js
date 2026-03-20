@@ -112,6 +112,10 @@ exports.handler = async () => {
       // Skip entries with no year — usually academic theses/papers
       if (!year) continue;
 
+      // Only keep books from the last ~12 months
+      const thisYear = new Date().getFullYear();
+      if (parseInt(year) < thisYear - 1) continue;
+
       // --- COVER --- requires libgen internal ID (from "l NNNNN" badge in cell 0)
       // Badge HTML: <span class="badge badge-secondary"">l 5191331</span>
       const idM = cell0.match(/\bl\s+(\d+)\b/);
@@ -129,7 +133,9 @@ exports.handler = async () => {
   const results = await Promise.allSettled(
     queries.map(async (q) => {
       try {
-        const url = `${LIBGEN}/index.php?req=${encodeURIComponent(q.term)}&column=def&res=15&sort=year&sortmode=DESC&language=${encodeURIComponent(q.lang)}&lg_topic=libgen`;
+        const thisYear = new Date().getFullYear();
+        const fromYear = thisYear - 1; // last ~1 year
+        const url = `${LIBGEN}/index.php?req=${encodeURIComponent(q.term)}&column=def&res=25&sort=year&sortmode=DESC&language=${encodeURIComponent(q.lang)}&lg_topic=libgen&yearfrom=${fromYear}&yearto=${thisYear}`;
         const res = await fetch(url, { headers: hdrs, signal: AbortSignal.timeout(8000) });
         if (!res.ok) { console.error(`libgen HTTP ${res.status} for "${q.term}"`); return []; }
         const html = await res.text();
