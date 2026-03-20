@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(cp \"../swerve-master \\(2\\)/swerve-master/liked.csv\" ./liked.csv)",
-      "Bash(cp \"C:/Users/User/Downloads/swerve-master \\(2\\)/swerve-master/liked.csv\" ./liked.csv)"
+      "Bash(cp \"C:/Users/User/Downloads/swerve-master \\(2\\)/swerve-master/liked.csv\" ./liked.csv)",
+      "Bash(gh repo:*)",
+      "Bash(node -e \":*)"
     ]
   }
 }
