@@ -614,6 +614,27 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 }
 .source-del:hover { color: #f87171; }
 
+/* ====== TAB COUNT BADGE ====== */
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 8px;
+  margin-left: 4px;
+  line-height: 1;
+}
+.cat-btn:not(.active) .tab-count {
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+
 /* ====== HIDDEN ====== */
 .hidden { display: none !important; }
 

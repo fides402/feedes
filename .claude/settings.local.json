@@ -4,7 +4,10 @@
       "Bash(cp \"../swerve-master \\(2\\)/swerve-master/liked.csv\" ./liked.csv)",
       "Bash(cp \"C:/Users/User/Downloads/swerve-master \\(2\\)/swerve-master/liked.csv\" ./liked.csv)",
       "Bash(gh repo:*)",
-      "Bash(node -e \":*)"
+      "Bash(node -e \":*)",
+      "Bash(curl -s \"https://whimsical-blini-c901e3.netlify.app/api/books\")",
+      "Bash(curl -si \"https://whimsical-blini-c901e3.netlify.app/api/books\")",
+      "Bash(curl -s \"https://whimsical-blini-c901e3.netlify.app/api/proxy?url=https://musicaficionado.blog/feed/\")"
     ]
   }
 }

@@ -147,58 +147,50 @@ function parseDate(str) {
 //  YOUTUBE
 // ============================================================
 async function fetchYoutube() {
-  const cachedIds  = JSON.parse(localStorage.getItem('yt_ids') || '{}');
-  const customYT   = JSON.parse(localStorage.getItem('custom_youtube') || '[]');
-  const channels   = [...CONFIG.YT_CHANNELS, ...customYT];
-  const items = [];
+  const cachedIds = JSON.parse(localStorage.getItem('yt_ids') || '{}');
+  const customYT  = JSON.parse(localStorage.getItem('custom_youtube') || '[]');
+  const channels  = [...CONFIG.YT_CHANNELS, ...customYT];
 
-  for (const ch of channels) {
+  // Resolve all handles in parallel, then fetch all RSS feeds in parallel
+  const resolved = await Promise.all(channels.map(async (ch) => {
     let channelId = cachedIds[ch.handle];
-
     if (!channelId) {
       channelId = await resolveYTHandle(ch.handle);
-      if (channelId) {
-        cachedIds[ch.handle] = channelId;
-        localStorage.setItem('yt_ids', JSON.stringify(cachedIds));
-      }
+      if (channelId) cachedIds[ch.handle] = channelId;
     }
+    return { ...ch, channelId };
+  }));
+  localStorage.setItem('yt_ids', JSON.stringify(cachedIds));
 
-    if (!channelId) continue;
-
-    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-    const xml = await proxyFetch(rssUrl);
-    if (!xml) continue;
-
-    const doc = new DOMParser().parseFromString(xml, 'application/xml');
-    const entries = doc.querySelectorAll('entry');
-
-    entries.forEach((entry, i) => {
-      if (i >= 5) return;
-      const idEl   = entry.querySelector('id');
-      const rawId  = idEl?.textContent || '';
-      const videoId= rawId.replace('yt:video:', '').trim();
-      const link   = entry.querySelector('link')?.getAttribute('href') || '';
-      const vidFromLink = link.match(/v=([^&]+)/)?.[1];
-      const vid    = videoId || vidFromLink;
-      const title  = entry.querySelector('title')?.textContent?.trim();
-      const date   = entry.querySelector('published')?.textContent;
-
-      if (vid && title) {
-        items.push({
-          type: 'youtube',
-          channel: ch.name,
-          title,
-          videoId: vid,
+  const feeds = await Promise.all(
+    resolved.filter(ch => ch.channelId).map(async (ch) => {
+      const xml = await proxyFetch(
+        `https://www.youtube.com/feeds/videos.xml?channel_id=${ch.channelId}`
+      );
+      if (!xml) return [];
+      const doc     = new DOMParser().parseFromString(xml, 'application/xml');
+      const entries = doc.querySelectorAll('entry');
+      const items   = [];
+      entries.forEach((entry, i) => {
+        if (i >= 5) return;
+        const rawId   = entry.querySelector('id')?.textContent || '';
+        const videoId = rawId.replace('yt:video:', '').trim();
+        const link    = entry.querySelector('link')?.getAttribute('href') || '';
+        const vid     = videoId || link.match(/v=([^&]+)/)?.[1];
+        const title   = entry.querySelector('title')?.textContent?.trim();
+        const date    = entry.querySelector('published')?.textContent;
+        if (vid && title) items.push({
+          type: 'youtube', channel: ch.name, title, videoId: vid,
           thumbnail: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
-          date: parseDate(date),
-          link: `https://www.youtube.com/watch?v=${vid}`,
+          date: parseDate(date), link: `https://www.youtube.com/watch?v=${vid}`,
           id: `yt-${vid}`,
         });
-      }
-    });
-  }
+      });
+      return items;
+    })
+  );
 
-  return items.sort((a, b) => new Date(b.date) - new Date(a.date));
+  return feeds.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 async function resolveYTHandle(handle) {
@@ -570,7 +562,8 @@ async function fetchSpotify() {
   }
 
   if (!dwPlaylist) {
-    console.warn('Discover Weekly not found. Available playlists: check console.');
+    setFeedback('spotify-feedback',
+      'Discover Weekly non trovata. Apri Spotify e assicurati di avere la playlist nella libreria.', 'err');
     return [];
   }
 
@@ -788,7 +781,27 @@ function loadYTEmbed(el, videoId) {
 // ============================================================
 //  RENDER FEED
 // ============================================================
+function updateTabCounts() {
+  const counts = {};
+  allItems.forEach(i => { counts[i.type] = (counts[i.type] || 0) + 1; });
+  counts['all'] = allItems.length;
+  catBtns.forEach(btn => {
+    const cat = btn.dataset.cat;
+    const n   = counts[cat] || 0;
+    // remove existing badge
+    btn.querySelector('.tab-count')?.remove();
+    if (n > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'tab-count';
+      badge.textContent = n;
+      btn.appendChild(badge);
+    }
+  });
+}
+
 function renderFeed() {
+  updateTabCounts();
+
   const items = currentCat === 'all'
     ? allItems
     : allItems.filter(i => i.type === currentCat);
