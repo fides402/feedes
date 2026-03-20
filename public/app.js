@@ -20,7 +20,7 @@ const CONFIG = {
 
   RSS_FEEDS: [
     { name: 'Music Aficionado', url: 'https://musicaficionado.blog/feed/', cat: 'web' },
-    { name: 'AudioZ',           url: 'https://audioz.download/rss.xml',   cat: 'web' },
+    { name: 'AudioZ',           url: 'https://audioz.download/rss.xml',   cat: 'web', filter: item => !/request/i.test(item.title) },
   ],
 
   // Music discovery RSS feeds (incl. rap ita/usa + taste-matching)
@@ -219,7 +219,8 @@ async function fetchRSSFeeds() {
   const fetches = allFeeds.map(async (feed) => {
     const xml = await proxyFetch(feed.url);
     if (!xml) return;
-    const parsed = parseRSS(xml, feed.name, feed.cat || 'web');
+    let parsed = parseRSS(xml, feed.name, feed.cat || 'web');
+    if (feed.filter) parsed = parsed.filter(feed.filter);
     items.push(...parsed);
   });
 
