@@ -25,7 +25,7 @@ const CONFIG = {
 
   // Music discovery RSS feeds (incl. rap ita/usa + taste-matching)
   MUSIC_NEWS_FEEDS: [
-    { name: 'Pitchfork Reviews',  url: 'https://pitchfork.com/rss/reviews/albums/',           cat: 'newmusic' },
+    { name: 'Pitchfork Reviews',  url: 'https://pitchfork.com/feed/feed-album-reviews/rss',   cat: 'newmusic' },
     { name: 'Bandcamp Daily',     url: 'https://daily.bandcamp.com/feed',                     cat: 'newmusic' },
     { name: 'HipHopDX',          url: 'https://hiphopdx.com/rss',                             cat: 'newmusic' },
     { name: 'DJBooth',            url: 'https://djbooth.net/rss',                              cat: 'newmusic' },
