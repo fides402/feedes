@@ -268,7 +268,10 @@ async function fetchMovies() {
 //  DISCOGS — Raccomandazioni per gusto
 // ============================================================
 async function fetchDiscogs() {
-  const cached = sessionStorage.getItem('discogs_rare');
+  // Daily cache — key changes each day so results refresh automatically
+  const today = new Date().toISOString().slice(0, 10);
+  const cacheKey = `discogs_rare_${today}`;
+  const cached = sessionStorage.getItem(cacheKey);
   if (cached) return JSON.parse(cached);
 
   const headers = {
@@ -278,11 +281,13 @@ async function fetchDiscogs() {
   const items = [];
   const seen  = new Set();
 
-  // Sort by have ascending (fewest copies in collections = rarest)
-  // Keep records with have 5–500 and want > 5 (desired but hard to find)
+  // Rotate page daily (pages 4–12) to get fresh results every day
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+  const page = (dayOfYear % 9) + 4; // cycles through pages 4–12
+
   for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
     const data = await apiGet(
-      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=have&sort_order=asc&per_page=25&format=Vinyl`,
+      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=25&page=${page}&format=Vinyl`,
       headers
     );
     await sleep(600);
@@ -290,8 +295,8 @@ async function fetchDiscogs() {
       if (seen.has(r.id)) continue;
       const have = r.community?.have || 0;
       const want = r.community?.want || 0;
-      // Rare: few owners (5–500), at least a handful of people want it
-      if (have < 5 || have > 500 || want < 5) continue;
+      // Not too common (have < 2000), not total obscurity (have > 30), some demand (want > 50)
+      if (have < 30 || have > 2000 || want < 50) continue;
       seen.add(r.id);
       const cover = r.cover_image;
       if (cover?.includes('spacer')) continue;
@@ -309,7 +314,7 @@ async function fetchDiscogs() {
     }
   }
 
-  sessionStorage.setItem('discogs_rare', JSON.stringify(items));
+  sessionStorage.setItem(cacheKey, JSON.stringify(items));
   return items;
 }
 
