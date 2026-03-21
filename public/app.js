@@ -258,8 +258,8 @@ function loadDiscogsFromCache() {
   try { return JSON.parse(cached); } catch (e) { return []; }
 }
 
-// Fetch effettivo — chiamato solo dal pulsante manuale
-async function refreshDiscogs() {
+// Fetch effettivo — chiamato dal pulsante manuale o al primo avvio (updateFeed=false)
+async function refreshDiscogs(updateFeed = true) {
   const btn = document.getElementById('discogs-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '↻ …'; }
 
@@ -303,10 +303,11 @@ async function refreshDiscogs() {
 
   localStorage.setItem('discogs_cache', JSON.stringify(items));
 
-  // Aggiorna allItems e ri-renderizza solo la sezione discogs
-  allItems = allItems.filter(i => i.type !== 'discogs');
-  allItems = [...allItems, ...items];
-  renderFeed();
+  if (updateFeed) {
+    allItems = allItems.filter(i => i.type !== 'discogs');
+    allItems = [...allItems, ...items];
+    renderFeed();
+  }
 
   if (btn) { btn.disabled = false; btn.textContent = '↻ Aggiorna'; }
   return items;
@@ -624,9 +625,15 @@ async function loadAll() {
 
     allItems = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 
-    // Discogs: solo da cache, nessuna richiesta di rete al caricamento
-    const discogsItems = loadDiscogsFromCache();
-    allItems = [...allItems, ...discogsItems];
+    // Discogs: carica dalla cache; se è la prima volta (cache vuota) fetch automatico
+    const cachedDiscogs = loadDiscogsFromCache();
+    if (cachedDiscogs.length > 0) {
+      allItems = [...allItems, ...cachedDiscogs];
+    } else {
+      // Prima apertura: carica una volta, poi solo manuale
+      const fresh = await refreshDiscogs(false);
+      allItems = [...allItems, ...fresh];
+    }
 
   } catch (e) {
     console.error('loadAll error:', e);
