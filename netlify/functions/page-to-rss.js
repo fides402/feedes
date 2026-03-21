@@ -15,32 +15,50 @@ const CORS = {
 };
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const TIMEOUT_MS = 12000;
 
 // ── fetch helpers ──────────────────────────────────────────────────────────
 
+// Compatible timeout — works on Node 16/17/18/20 and all serverless runtimes
+function withTimeout(ms) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  return { signal: ctrl.signal, clear: () => clearTimeout(id) };
+}
+
 async function fetchText(url, extraHeaders = {}) {
-  const r = await fetch(url, {
-    headers: {
-      'User-Agent': UA,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
-      ...extraHeaders,
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(14000),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status} — ${url}`);
-  return r.text();
+  const { signal, clear } = withTimeout(TIMEOUT_MS);
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+        ...extraHeaders,
+      },
+      redirect: 'follow',
+      signal,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.text();
+  } finally {
+    clear();
+  }
 }
 
 async function fetchJSON(url, extraHeaders = {}) {
-  const r = await fetch(url, {
-    headers: { 'User-Agent': UA, 'Accept': 'application/json', ...extraHeaders },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(14000),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status} — ${url}`);
-  return r.json();
+  const { signal, clear } = withTimeout(TIMEOUT_MS);
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept': 'application/json', ...extraHeaders },
+      redirect: 'follow',
+      signal,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  } finally {
+    clear();
+  }
 }
 
 // ── XML escaping & RSS builder ─────────────────────────────────────────────
@@ -296,8 +314,9 @@ exports.handler = async (event) => {
       try {
         const xml = await mondadoriAdapter(targetUrl, count);
         if (xml) return { statusCode: 200, headers: XML, body: xml };
+        console.warn('Mondadori adapter: returned null (no products found)');
       } catch (e) {
-        console.warn('Mondadori adapter:', e.message);
+        console.error('Mondadori adapter error:', e.message, e.stack);
       }
     }
 
