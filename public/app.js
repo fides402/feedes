@@ -4,6 +4,16 @@
 //  PULSE — Personal Feed  |  app.js
 // ============================================================
 
+// ---- API BASE (Netlify functions) --------------------------
+// Su Netlify e localhost le API sono relative.
+// Su GitHub Pages (o qualsiasi altro host) puntano al sito Netlify.
+const NETLIFY_BASE = 'https://whimsical-blini-c901e3.netlify.app';
+const API_BASE = (() => {
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h.endsWith('.netlify.app')) return '';
+  return NETLIFY_BASE;
+})();
+
 // ---- CONFIG ------------------------------------------------
 const CONFIG = {
   DISCOGS_TOKEN: 'fvYYQHvhAEHVshXGPHYtbAWSlTUNQpnNJcBBbYCB',
@@ -42,7 +52,7 @@ const CONFIG = {
   // New releases — recent year filter on Discogs
   NEW_MUSIC_STYLES: ['Hip Hop', 'Boom Bap', 'Conscious', 'Abstract', 'Soul', 'Bossa Nova', 'MPB'],
 
-  PROXY: '/api/proxy?url=',
+  PROXY: `${API_BASE}/api/proxy?url=`,
 };
 
 // ---- STATE -------------------------------------------------
@@ -263,7 +273,7 @@ async function fetchMovies() {
   Object.keys(localStorage).filter(k => k.startsWith('movies_') && k !== cacheKey)
     .forEach(k => localStorage.removeItem(k));
 
-  const data  = await apiGet('/api/movies');
+  const data  = await apiGet(`${API_BASE}/api/movies`);
   const items = Array.isArray(data) ? data : [];
   if (items.length) localStorage.setItem(cacheKey, JSON.stringify(items));
   return items;
@@ -277,7 +287,7 @@ async function refreshMovies() {
   Object.keys(localStorage).filter(k => k.startsWith('movies_')).forEach(k => localStorage.removeItem(k));
 
   // ?bust=1 bypassa la cache in-memory del container Lambda
-  const data  = await apiGet('/api/movies?bust=1');
+  const data  = await apiGet(`${API_BASE}/api/movies?bust=1`);
   const items = Array.isArray(data) ? data : [];
 
   const today = new Date().toISOString().slice(0, 10);
