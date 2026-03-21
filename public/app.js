@@ -227,52 +227,41 @@ async function fetchRSSFeeds() {
 }
 
 // ============================================================
-//  TMDB — Film & Serie
+//  Film & Serie — nuove uscite streaming filtrate da Groq
+//  Cache giornaliera localStorage per preservare quota Groq
 // ============================================================
 async function fetchMovies() {
-  const base = 'https://api.themoviedb.org/3';
-  const key  = CONFIG.TMDB_KEY;
-  const [mov, tv] = await Promise.all([
-    apiGet(`${base}/trending/movie/week?api_key=${key}&language=it-IT`),
-    apiGet(`${base}/trending/tv/week?api_key=${key}&language=it-IT`),
-  ]);
+  const today    = new Date().toISOString().slice(0, 10);
+  const cacheKey = `movies_${today}`;
+  const cached   = localStorage.getItem(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e) {}
+  }
+  // Rimuovi cache di giorni precedenti
+  Object.keys(localStorage).filter(k => k.startsWith('movies_') && k !== cacheKey)
+    .forEach(k => localStorage.removeItem(k));
 
-  const items = [];
-  (mov?.results || []).slice(0, 12).forEach(m => items.push({
-    type: 'movie',
-    mediaType: 'Film',
-    title: m.title,
-    overview: m.overview?.slice(0, 200),
-    date: parseDate(m.release_date),
-    poster: m.poster_path ? `https://image.tmdb.org/t/p/w300${m.poster_path}` : null,
-    rating: Math.round(m.vote_average * 10) / 10,
-    link: `https://www.themoviedb.org/movie/${m.id}`,
-    id: `movie-${m.id}`,
-  }));
-  (tv?.results || []).slice(0, 10).forEach(t => items.push({
-    type: 'movie',
-    mediaType: 'Serie TV',
-    title: t.name,
-    overview: t.overview?.slice(0, 200),
-    date: parseDate(t.first_air_date),
-    poster: t.poster_path ? `https://image.tmdb.org/t/p/w300${t.poster_path}` : null,
-    rating: Math.round(t.vote_average * 10) / 10,
-    link: `https://www.themoviedb.org/tv/${t.id}`,
-    id: `tv-${t.id}`,
-  }));
-
-  return items.sort((a, b) => b.rating - a.rating);
+  const data  = await apiGet('/api/movies');
+  const items = Array.isArray(data) ? data : [];
+  if (items.length) localStorage.setItem(cacheKey, JSON.stringify(items));
+  return items;
 }
 
 // ============================================================
-//  DISCOGS — Raccomandazioni per gusto
+//  DISCOGS — Raccomandazioni per gusto (solo refresh manuale)
 // ============================================================
-async function fetchDiscogs() {
-  // Daily cache — key changes each day so results refresh automatically
-  const today = new Date().toISOString().slice(0, 10);
-  const cacheKey = `discogs_rare_${today}`;
-  const cached = sessionStorage.getItem(cacheKey);
-  if (cached) return JSON.parse(cached);
+
+// Carica da cache localStorage — non fa richieste di rete
+function loadDiscogsFromCache() {
+  const cached = localStorage.getItem('discogs_cache');
+  if (!cached) return [];
+  try { return JSON.parse(cached); } catch (e) { return []; }
+}
+
+// Fetch effettivo — chiamato solo dal pulsante manuale
+async function refreshDiscogs() {
+  const btn = document.getElementById('discogs-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ …'; }
 
   const headers = {
     'Authorization': `Discogs token=${CONFIG.DISCOGS_TOKEN}`,
@@ -281,9 +270,8 @@ async function fetchDiscogs() {
   const items = [];
   const seen  = new Set();
 
-  // Rotate page daily (pages 4–12) to get fresh results every day
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-  const page = (dayOfYear % 9) + 4; // cycles through pages 4–12
+  // Ruota pagina in base al timestamp del refresh per titoli sempre nuovi
+  const page = (Math.floor(Date.now() / 3600000) % 9) + 4;
 
   for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
     const data = await apiGet(
@@ -295,7 +283,6 @@ async function fetchDiscogs() {
       if (seen.has(r.id)) continue;
       const have = r.community?.have || 0;
       const want = r.community?.want || 0;
-      // Not too common (have < 2000), not total obscurity (have > 30), some demand (want > 50)
       if (have < 30 || have > 2000 || want < 50) continue;
       seen.add(r.id);
       const cover = r.cover_image;
@@ -314,7 +301,14 @@ async function fetchDiscogs() {
     }
   }
 
-  sessionStorage.setItem(cacheKey, JSON.stringify(items));
+  localStorage.setItem('discogs_cache', JSON.stringify(items));
+
+  // Aggiorna allItems e ri-renderizza solo la sezione discogs
+  allItems = allItems.filter(i => i.type !== 'discogs');
+  allItems = [...allItems, ...items];
+  renderFeed();
+
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Aggiorna'; }
   return items;
 }
 
@@ -583,8 +577,18 @@ function renderFeed() {
     typeOrder.forEach(type => {
       const group = grouped[type];
       if (!group?.length) return;
-      const labels = { youtube:'Video', web:'Blog & Notizie', newmusic:'Nuove Uscite Musicali', discogs:'Rarità Consigliate', movie:'Film & Serie', github:'GitHub Trending' };
-      html += `<div class="section-heading">${labels[type] || type}</div>`;
+      const labels = {
+        youtube:  'Video',
+        web:      'Blog & Notizie',
+        newmusic: 'Nuove Uscite Musicali',
+        discogs:  'Rarità Consigliate',
+        movie:    'Film & Serie — Streaming (curati per te)',
+        github:   'GitHub Trending',
+      };
+      const heading = type === 'discogs'
+        ? `<div class="section-heading">${labels.discogs}<button class="section-refresh-btn" id="discogs-refresh-btn" onclick="refreshDiscogs()">↻ Aggiorna</button></div>`
+        : `<div class="section-heading">${labels[type] || type}</div>`;
+      html += heading;
       group.forEach(item => {
         html += type === 'newmusic' && item.cover && !item.image
           ? renderNewMusicDiscogs(item)
@@ -615,11 +619,15 @@ async function loadAll() {
       fetchRSSFeeds(),
       fetchMovies(),
       fetchGithub(),
-      fetchDiscogs(),
       fetchNewMusic(),
     ]);
 
     allItems = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+    // Discogs: solo da cache, nessuna richiesta di rete al caricamento
+    const discogsItems = loadDiscogsFromCache();
+    allItems = [...allItems, ...discogsItems];
+
   } catch (e) {
     console.error('loadAll error:', e);
   }
@@ -794,10 +802,12 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 //  EVENTS
 // ============================================================
 function initEvents() {
-  // Refresh
+  // Refresh — non tocca la cache Discogs (aggiornata solo con il pulsante manuale)
   refreshBtn.addEventListener('click', () => {
-    sessionStorage.removeItem('discogs_rare');
     sessionStorage.removeItem('newmusic');
+    // Rimuovi cache film del giorno corrente per forzare nuovo filtro Groq
+    Object.keys(localStorage).filter(k => k.startsWith('movies_'))
+      .forEach(k => localStorage.removeItem(k));
     loadAll();
   });
 
@@ -834,9 +844,10 @@ function initEvents() {
   document.getElementById('add-rss-btn')?.addEventListener('click', addRSSFeed);
 
   // Expose globals for inline onclick handlers
-  window.loadYTEmbed  = loadYTEmbed;
-  window.removeCustom = removeCustom;
-  window.dismissItem  = dismissItem;
+  window.loadYTEmbed    = loadYTEmbed;
+  window.removeCustom   = removeCustom;
+  window.dismissItem    = dismissItem;
+  window.refreshDiscogs = refreshDiscogs;
 }
 
 // ============================================================

@@ -16,6 +16,11 @@
   to = "/.netlify/functions/books"
   status = 200
 
+[[redirects]]
+  from = "/api/movies"
+  to = "/.netlify/functions/movies"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]

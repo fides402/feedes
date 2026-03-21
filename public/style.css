@@ -443,6 +443,29 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   background: var(--orange);
   flex-shrink: 0;
 }
+.section-refresh-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  cursor: pointer;
+  text-transform: none;
+  transition: background 0.15s, color 0.15s;
+}
+.section-refresh-btn:hover:not(:disabled) {
+  background: var(--orange);
+  color: #fff;
+  border-color: var(--orange);
+}
+.section-refresh-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 /* ====== PANEL ====== */
 .panel-overlay {
