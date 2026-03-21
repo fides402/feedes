@@ -326,14 +326,20 @@ async function refreshDiscogs(updateFeed = true) {
   const items = [];
   const seen  = new Set();
 
-  // Ruota pagina in base al timestamp del refresh per titoli sempre nuovi
-  const page = (Math.floor(Date.now() / 3600000) % 9) + 4;
+  // Incrementa pagina ad ogni refresh — titoli sempre nuovi ad ogni pressione del pulsante
+  const pageOffset = (parseInt(localStorage.getItem('discogs_page_idx') || '0') + 1) % 20;
+  localStorage.setItem('discogs_page_idx', String(pageOffset));
+  const page = pageOffset + 3; // pagine 3–22
 
-  const priorityStyles = ['Soul', 'Funk', 'Soundtrack'];
+  // Stili con anno 70s forzato vs stili liberi
+  const SEVENTIES_STYLES = ['Soundtrack', 'Soul', 'Funk'];
+  const priorityStyles   = ['Soul', 'Funk', 'Soundtrack'];
+
   for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
-    const perPage = priorityStyles.includes(style) ? 35 : 18;
+    const perPage   = priorityStyles.includes(style) ? 35 : 18;
+    const yearParam = SEVENTIES_STYLES.includes(style) ? '&decade=70s' : '';
     const data = await apiGet(
-      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=${perPage}&page=${page}&format=Vinyl`,
+      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=${perPage}&page=${page}${yearParam}&format=Vinyl`,
       headers
     );
     await sleep(600);
