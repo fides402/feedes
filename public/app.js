@@ -47,8 +47,8 @@ const CONFIG = {
   ],
 
   // Discogs taste profile derived from liked.csv analysis
-  // (Italian/Spanish/Latin 70s pop, Bossa, Soul, French pop, MPB)
-  DISCOGS_STYLES: ['Bossa Nova', 'Soul', 'Chanson', 'MPB', 'Funk', 'Jazz', 'Latin', 'Exotica', 'Samba', 'Italian Pop'],
+  // Soul, Funk, OST come priorità — Bossa Nova relegata, Chanson rimossa
+  DISCOGS_STYLES: ['Soul', 'Funk', 'Soundtrack', 'Jazz', 'MPB', 'Latin', 'Bossa Nova', 'Exotica', 'Samba', 'Italian Pop'],
 
   // New releases — recent year filter on Discogs
   NEW_MUSIC_STYLES: ['Hip Hop', 'Boom Bap', 'Conscious', 'Abstract', 'Soul', 'Bossa Nova', 'MPB'],
@@ -329,9 +329,11 @@ async function refreshDiscogs(updateFeed = true) {
   // Ruota pagina in base al timestamp del refresh per titoli sempre nuovi
   const page = (Math.floor(Date.now() / 3600000) % 9) + 4;
 
+  const priorityStyles = ['Soul', 'Funk', 'Soundtrack'];
   for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
+    const perPage = priorityStyles.includes(style) ? 35 : 18;
     const data = await apiGet(
-      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=25&page=${page}&format=Vinyl`,
+      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=${perPage}&page=${page}&format=Vinyl`,
       headers
     );
     await sleep(600);
