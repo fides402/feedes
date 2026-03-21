@@ -11,7 +11,7 @@ const GROQ_KEY = process.env.GROQ_API_KEY || '';
 // Quota-protection: in-memory cache per container Lambda (warm reuse)
 let _cache     = null;
 let _cacheTime = 0;
-const CACHE_TTL = 6 * 3600 * 1000; // 6 ore
+const CACHE_TTL = 4 * 3600 * 1000; // 4 ore
 
 // Profilo Frusciante (titoli rappresentativi, limitati per non sprecare token Groq)
 const FRUSCIANTE_PROFILE = `Profilo cinematografico dedotto dai titoli consigliati da questo cinefilo:
@@ -33,9 +33,9 @@ exports.handler = async () => {
 
   try {
     const now  = new Date();
-    // Ultimi 2 mesi
+    // Ultimi 3 mesi
     const from = new Date(now);
-    from.setMonth(from.getMonth() - 2);
+    from.setMonth(from.getMonth() - 3);
     const fromStr = from.toISOString().slice(0, 10);
     const toStr   = now.toISOString().slice(0, 10);
 
@@ -44,10 +44,11 @@ exports.handler = async () => {
     const providers = '8%7C119%7C337%7C350%7C531%7C39%7C100';
     const base = 'https://api.themoviedb.org/3/discover';
 
+    // vote_count abbassato a 10 per includere anche titoli meno votati ma recenti
     const commonQ = `api_key=${TMDB_KEY}&language=it-IT&watch_region=IT`
       + `&with_watch_monetization_types=flatrate`
       + `&with_watch_providers=${providers}`
-      + `&vote_average.gte=7&vote_count.gte=30`
+      + `&vote_average.gte=7&vote_count.gte=10`
       + `&sort_by=vote_average.desc`;
 
     const [movRes, tvRes] = await Promise.all([
@@ -59,7 +60,7 @@ exports.handler = async () => {
     const tvData  = tvRes.ok  ? await tvRes.json()  : {};
 
     const candidates = [
-      ...(movData.results || []).slice(0, 18).map(m => ({
+      ...(movData.results || []).slice(0, 25).map(m => ({
         id:        `movie-${m.id}`,
         type:      'movie',
         mediaType: 'Film',
@@ -70,7 +71,7 @@ exports.handler = async () => {
         date:      m.release_date,
         link:      `https://www.themoviedb.org/movie/${m.id}`,
       })),
-      ...(tvData.results || []).slice(0, 10).map(t => ({
+      ...(tvData.results || []).slice(0, 15).map(t => ({
         id:        `tv-${t.id}`,
         type:      'movie',
         mediaType: 'Serie TV',
@@ -105,15 +106,15 @@ exports.handler = async () => {
         body: JSON.stringify({
           model: 'llama-3.3-70b-versatile',
           temperature: 0.1,
-          max_tokens: 150,
+          max_tokens: 250,
           messages: [
             {
               role: 'system',
-              content: `${FRUSCIANTE_PROFILE}\n\nSei un filtro di raccomandazioni. Data una lista di nuove uscite streaming, seleziona SOLO quelle che questo cinefilo probabilmente consiglierebbe. Rispondi SOLO con un array JSON di ID, es: ["movie-123","tv-456"]. Zero altro testo.`,
+              content: `${FRUSCIANTE_PROFILE}\n\nSei un filtro LARGO di raccomandazioni. Tutti i titoli in lista hanno già voto TMDB ≥7, quindi il voto alto è garanzia di qualità sufficiente. Il tuo compito è ESCLUDERE solo i titoli palesemente incompatibili col profilo (commedie romantiche banali, film per bambini convenzionali, blockbuster d'azione puri senza spessore). Tutto il resto — anche se non perfettamente nel profilo — INCLUDILO. Assicurati di includere varietà di generi: non solo horror, ma anche thriller, drama, animazione, fantascienza, commedia nera, ecc. Meglio includere qualcosa in più che perdere titoli buoni. Rispondi SOLO con un array JSON di ID, es: ["movie-123","tv-456"]. Zero altro testo.`,
             },
             {
               role: 'user',
-              content: `Nuove uscite:\n${listText}\n\nArray JSON degli ID consigliati:`,
+              content: `Nuove uscite (tutte con voto ≥7):\n${listText}\n\nArray JSON degli ID da tenere (escludi solo l'ovviamente incompatibile, mantieni varietà di generi):`,
             },
           ],
         }),
