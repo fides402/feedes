@@ -230,14 +230,17 @@ async function fetchRSSFeeds() {
 //  Film & Serie — nuove uscite streaming filtrate da Groq
 //  Cache giornaliera localStorage per preservare quota Groq
 // ============================================================
+// v3 — cambia questa stringa per fare cache bust su tutti i client
+const MOVIES_CACHE_VER = 'v3';
+
 async function fetchMovies() {
   const today    = new Date().toISOString().slice(0, 10);
-  const cacheKey = `movies_${today}`;
+  const cacheKey = `movies_${MOVIES_CACHE_VER}_${today}`;
   const cached   = localStorage.getItem(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch (e) {}
   }
-  // Rimuovi cache di giorni precedenti
+  // Rimuovi tutte le cache film precedenti (versioni vecchie + giorni vecchi)
   Object.keys(localStorage).filter(k => k.startsWith('movies_') && k !== cacheKey)
     .forEach(k => localStorage.removeItem(k));
 
@@ -245,6 +248,21 @@ async function fetchMovies() {
   const items = Array.isArray(data) ? data : [];
   if (items.length) localStorage.setItem(cacheKey, JSON.stringify(items));
   return items;
+}
+
+async function refreshMovies() {
+  const btn = document.getElementById('movies-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ …'; }
+  // Svuota tutta la cache film
+  Object.keys(localStorage).filter(k => k.startsWith('movies_')).forEach(k => localStorage.removeItem(k));
+  const data  = await apiGet('/api/movies');
+  const items = Array.isArray(data) ? data : [];
+  const today    = new Date().toISOString().slice(0, 10);
+  if (items.length) localStorage.setItem(`movies_${MOVIES_CACHE_VER}_${today}`, JSON.stringify(items));
+  allItems = allItems.filter(i => i.type !== 'movie');
+  allItems = [...allItems, ...items];
+  renderFeed();
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Aggiorna'; }
 }
 
 // ============================================================
@@ -586,9 +604,14 @@ function renderFeed() {
         movie:    'Film & Serie — Streaming (curati per te)',
         github:   'GitHub Trending',
       };
-      const heading = type === 'discogs'
-        ? `<div class="section-heading">${labels.discogs}<button class="section-refresh-btn" id="discogs-refresh-btn" onclick="refreshDiscogs()">↻ Aggiorna</button></div>`
-        : `<div class="section-heading">${labels[type] || type}</div>`;
+      let heading;
+      if (type === 'discogs') {
+        heading = `<div class="section-heading">${labels.discogs}<button class="section-refresh-btn" id="discogs-refresh-btn" onclick="refreshDiscogs()">↻ Aggiorna</button></div>`;
+      } else if (type === 'movie') {
+        heading = `<div class="section-heading">${labels.movie}<button class="section-refresh-btn" id="movies-refresh-btn" onclick="refreshMovies()">↻ Aggiorna</button></div>`;
+      } else {
+        heading = `<div class="section-heading">${labels[type] || type}</div>`;
+      }
       html += heading;
       group.forEach(item => {
         html += type === 'newmusic' && item.cover && !item.image
@@ -597,10 +620,14 @@ function renderFeed() {
       });
     });
   } else {
-    // Nel tab Dischi mostra il pulsante aggiorna in cima
+    // Pulsante aggiorna in cima per tab Dischi e tab Film
     if (currentCat === 'discogs') {
       html += `<div class="discogs-refresh-bar" style="grid-column:1/-1;padding:8px 2px 4px">
         <button class="discogs-refresh-bar-btn" id="discogs-refresh-btn" onclick="refreshDiscogs()">↻ Aggiorna dischi</button>
+      </div>`;
+    } else if (currentCat === 'movie') {
+      html += `<div class="discogs-refresh-bar" style="grid-column:1/-1;padding:8px 2px 4px">
+        <button class="discogs-refresh-bar-btn" id="movies-refresh-btn" onclick="refreshMovies()">↻ Aggiorna film</button>
       </div>`;
     }
     items.forEach(item => {
@@ -861,6 +888,7 @@ function initEvents() {
   window.removeCustom   = removeCustom;
   window.dismissItem    = dismissItem;
   window.refreshDiscogs = refreshDiscogs;
+  window.refreshMovies  = refreshMovies;
 }
 
 // ============================================================
