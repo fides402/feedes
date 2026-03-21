@@ -44,13 +44,14 @@ exports.handler = async () => {
     const providers = '8%7C119%7C337%7C350%7C531%7C39%7C100';
     const base = 'https://api.themoviedb.org/3/discover';
 
-    // popularity.desc = titoli davvero in circolazione sulle piattaforme,
-    // vote_count>=100 evita film oscuri con pochi voti gonfiati,
-    // vote_average>=6.8 (Groq filtra ulteriormente)
+    // popularity.desc = titoli davvero in circolazione sulle piattaforme
+    // vote_count>=100 evita film oscuri con pochi voti gonfiati
+    // without_genres: esclude romance puro (10749) e family (10751) a monte
     const commonQ = `api_key=${TMDB_KEY}&language=it-IT&watch_region=IT`
       + `&with_watch_monetization_types=flatrate`
       + `&with_watch_providers=${providers}`
       + `&vote_average.gte=6.8&vote_count.gte=100`
+      + `&without_genres=10749%2C10751`   // no romance puro, no family
       + `&sort_by=popularity.desc`;
 
     const [movRes, tvRes] = await Promise.all([
