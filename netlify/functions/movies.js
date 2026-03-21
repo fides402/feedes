@@ -44,12 +44,14 @@ exports.handler = async () => {
     const providers = '8%7C119%7C337%7C350%7C531%7C39%7C100';
     const base = 'https://api.themoviedb.org/3/discover';
 
-    // vote_count abbassato a 10 per includere anche titoli meno votati ma recenti
+    // popularity.desc = titoli davvero in circolazione sulle piattaforme,
+    // vote_count>=100 evita film oscuri con pochi voti gonfiati,
+    // vote_average>=6.8 (Groq filtra ulteriormente)
     const commonQ = `api_key=${TMDB_KEY}&language=it-IT&watch_region=IT`
       + `&with_watch_monetization_types=flatrate`
       + `&with_watch_providers=${providers}`
-      + `&vote_average.gte=7&vote_count.gte=10`
-      + `&sort_by=vote_average.desc`;
+      + `&vote_average.gte=6.8&vote_count.gte=100`
+      + `&sort_by=popularity.desc`;
 
     const [movRes, tvRes] = await Promise.all([
       fetch(`${base}/movie?${commonQ}&primary_release_date.gte=${fromStr}&primary_release_date.lte=${toStr}`),
