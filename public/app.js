@@ -101,15 +101,34 @@ function parseRSS(xml, sourceName, cat = 'web') {
   if (doc.querySelector('parsererror')) return [];
 
   const isAtom = !!doc.querySelector('feed');
+  // Fallback link: channel/feed level link for items that have no <link>
+  const channelLink = isAtom
+    ? (doc.querySelector('feed > link[rel="alternate"]')?.getAttribute('href') || doc.querySelector('feed > link')?.getAttribute('href'))
+    : doc.querySelector('channel > link')?.textContent?.trim();
+
   const items = [];
   const els = doc.querySelectorAll(isAtom ? 'entry' : 'item');
 
   els.forEach((el, i) => {
     if (i >= 10) return;
     const title = el.querySelector('title')?.textContent?.trim();
-    const link  = isAtom
+
+    let link = isAtom
       ? (el.querySelector('link[rel="alternate"]')?.getAttribute('href') || el.querySelector('link')?.getAttribute('href') || el.querySelector('link')?.textContent?.trim())
       : el.querySelector('link')?.textContent?.trim();
+
+    // Se manca <link>, prova guid (se è un URL) poi fallback al link del canale
+    if (!link) {
+      const guid = el.querySelector('guid');
+      const guidVal = guid?.textContent?.trim();
+      const isPerma = guid?.getAttribute('isPermaLink');
+      if (guidVal && (isPerma === 'true' || (guidVal.startsWith('http') && isPerma !== 'false'))) {
+        link = guidVal;
+      } else {
+        link = channelLink || null;
+      }
+    }
+
     const date  = el.querySelector(isAtom ? 'published,updated' : 'pubDate')?.textContent;
     const desc  = el.querySelector(isAtom ? 'summary,content' : 'description,content\\:encoded')?.textContent;
     const img   = el.querySelector('enclosure[type^="image"]')?.getAttribute('url')
@@ -121,7 +140,7 @@ function parseRSS(xml, sourceName, cat = 'web') {
         type: cat,
         source: sourceName,
         title,
-        link,
+        link: link + (link === channelLink ? `#${i}` : ''), // evita duplicati se stesso link canale
         date: parseDate(date),
         snippet: stripHTML(desc).slice(0, 160),
         image: img,
@@ -774,22 +793,38 @@ async function addRSSFeed() {
   setFeedback('rss-feedback', 'Verifica feed...');
 
   const xml = await proxyFetch(url);
-  if (!xml || xml.includes('<parsererror')) {
-    setFeedback('rss-feedback', 'Feed non valido o non raggiungibile', 'err');
+  if (!xml) {
+    setFeedback('rss-feedback', 'Feed non raggiungibile', 'err');
+    document.getElementById('add-rss-btn').disabled = false; return;
+  }
+
+  // Prova il parse — feedfry e simili possono avere item senza <link>, gestiamo comunque
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) {
+    setFeedback('rss-feedback', 'XML non valido', 'err');
+    document.getElementById('add-rss-btn').disabled = false; return;
+  }
+  const isRSSorAtom = doc.querySelector('rss,feed,channel');
+  if (!isRSSorAtom) {
+    setFeedback('rss-feedback', 'URL non sembra un feed RSS/Atom valido', 'err');
     document.getElementById('add-rss-btn').disabled = false; return;
   }
 
   custom.push({ name, url, cat: 'web' });
   localStorage.setItem('custom_rss', JSON.stringify(custom));
-  setFeedback('rss-feedback', `✓ "${name}" aggiunto`, 'ok');
   urlInput.value = ''; nameInput.value = '';
   document.getElementById('add-rss-btn').disabled = false;
   renderSourcesList();
 
-  // Immediately show the new feed's items without requiring a full refresh
+  // Mostra subito gli articoli senza ricaricamento completo
   const newItems = parseRSS(xml, name, 'web');
-  allItems = [...newItems, ...allItems];
-  renderFeed();
+  if (newItems.length) {
+    setFeedback('rss-feedback', `✓ "${name}" aggiunto (${newItems.length} articoli)`, 'ok');
+    allItems = [...newItems, ...allItems];
+    renderFeed();
+  } else {
+    setFeedback('rss-feedback', `✓ "${name}" aggiunto — nuovi articoli appariranno al prossimo aggiornamento`, 'ok');
+  }
 }
 
 function renderSourcesList() {
