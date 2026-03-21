@@ -8,7 +8,8 @@
 const TMDB_KEY = '85395f1f04d886e7ad3581f64d886026';
 const GROQ_KEY = process.env.GROQ_API_KEY || '';
 
-// Quota-protection: in-memory cache per container Lambda (warm reuse)
+// Cache in-memory Lambda: protegge quota Groq per accessi ravvicinati
+// Se ?bust=1 viene passato, la ignora (usato dal pulsante Aggiorna)
 let _cache     = null;
 let _cacheTime = 0;
 const CACHE_TTL = 4 * 3600 * 1000; // 4 ore
@@ -19,15 +20,16 @@ Titoli amati (campione): Nosferatu, The Substance, Heretic, Vermiglio, Emilia PÃ
 
 Caratteristiche del gusto: cinema auteur europeo e asiatico, horror elevato e body horror, film sperimentali e surreali, animazione poetica, thriller psicologico oscuro, fantascienza autoriale, cinema italiano d'autore, film che sfidano lo spettatore. NON gradisce: commedia romantica generica, blockbuster d'azione privi di spessore, film familiari convenzionali.`;
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  const bust = event.queryStringParameters?.bust === '1';
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, max-age=10800', // 3h CDN cache
+    'Cache-Control': bust ? 'no-store' : 'public, max-age=10800',
   };
 
-  // Warm container cache
-  if (_cache && Date.now() - _cacheTime < CACHE_TTL) {
+  // Usa cache in-memory solo se NON Ã¨ una richiesta di aggiornamento forzato
+  if (!bust && _cache && Date.now() - _cacheTime < CACHE_TTL) {
     return { statusCode: 200, headers: corsHeaders, body: _cache };
   }
 

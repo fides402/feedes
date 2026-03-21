@@ -253,16 +253,24 @@ async function fetchMovies() {
 async function refreshMovies() {
   const btn = document.getElementById('movies-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '↻ …'; }
-  // Svuota tutta la cache film
+
+  // Svuota cache locale
   Object.keys(localStorage).filter(k => k.startsWith('movies_')).forEach(k => localStorage.removeItem(k));
-  const data  = await apiGet('/api/movies');
+
+  // ?bust=1 bypassa la cache in-memory del container Lambda
+  const data  = await apiGet('/api/movies?bust=1');
   const items = Array.isArray(data) ? data : [];
-  const today    = new Date().toISOString().slice(0, 10);
+
+  const today = new Date().toISOString().slice(0, 10);
   if (items.length) localStorage.setItem(`movies_${MOVIES_CACHE_VER}_${today}`, JSON.stringify(items));
+
   allItems = allItems.filter(i => i.type !== 'movie');
   allItems = [...allItems, ...items];
   renderFeed();
-  if (btn) { btn.disabled = false; btn.textContent = '↻ Aggiorna'; }
+
+  // Il btn è stato ri-renderizzato da renderFeed, ri-selezionalo
+  const newBtn = document.getElementById('movies-refresh-btn');
+  if (newBtn) { newBtn.disabled = false; newBtn.textContent = '↻ Aggiorna'; }
 }
 
 // ============================================================
@@ -327,7 +335,10 @@ async function refreshDiscogs(updateFeed = true) {
     renderFeed();
   }
 
-  if (btn) { btn.disabled = false; btn.textContent = '↻ Aggiorna'; }
+  // Ri-seleziona dopo renderFeed (il vecchio elemento non è più nel DOM)
+  const newBtn = document.getElementById('discogs-refresh-btn');
+  if (newBtn) { newBtn.disabled = false; newBtn.textContent = '↻ Aggiorna'; }
+  else if (btn) { btn.disabled = false; btn.textContent = '↻ Aggiorna'; }
   return items;
 }
 
