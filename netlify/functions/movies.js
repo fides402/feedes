@@ -34,54 +34,64 @@ exports.handler = async (event) => {
   }
 
   try {
-    const now  = new Date();
-    // Ultimi 6 mesi — TMDB accumula voti lentamente per film recenti
-    const from = new Date(now);
-    from.setMonth(from.getMonth() - 6);
-    const fromStr = from.toISOString().slice(0, 10);
-    const toStr   = now.toISOString().slice(0, 10);
+    const now    = new Date();
+    const toStr  = now.toISOString().slice(0, 10);
 
-    const base = 'https://api.themoviedb.org/3/discover';
+    // Fascia A: ultimi 6 mesi, soglie qualità standard
+    const from6m = new Date(now); from6m.setMonth(from6m.getMonth() - 6);
+    const from6mStr = from6m.toISOString().slice(0, 10);
 
-    // Niente filtro provider: TMDB ha dati streaming Italia molto incompleti.
-    // Selezioniamo film/serie popolari di qualità — Groq poi filtra per gusto.
-    // without_genres esclude romance puro (10749) e family (10751) a monte.
-    const commonQ = `api_key=${TMDB_KEY}&language=it-IT`
-      + `&vote_average.gte=6.8&vote_count.gte=50`
-      + `&without_genres=10749%2C10751`
-      + `&sort_by=popularity.desc`;
+    // Fascia B: ultime 8 settimane, nessuna soglia voto (titoli freschi come
+    // DTF St. Louis che non hanno ancora accumulato voti su TMDB)
+    const from8w = new Date(now); from8w.setDate(from8w.getDate() - 56);
+    const from8wStr = from8w.toISOString().slice(0, 10);
 
-    const [movRes, tvRes] = await Promise.all([
-      fetch(`${base}/movie?${commonQ}&primary_release_date.gte=${fromStr}&primary_release_date.lte=${toStr}`),
-      fetch(`${base}/tv?${commonQ}&first_air_date.gte=${fromStr}&first_air_date.lte=${toStr}`),
+    const base     = 'https://api.themoviedb.org/3/discover';
+    const noRomFam = `&without_genres=10749%2C10751`; // no romance puro, no family
+
+    // Fascia A: qualità verificata da voti, popolarità ordinante
+    const qA = `api_key=${TMDB_KEY}&language=it-IT&vote_average.gte=6.8&vote_count.gte=50${noRomFam}&sort_by=popularity.desc`;
+    // Fascia B: uscite recenti — solo popolarità minima, nessun filtro voto (Groq decide)
+    const qB = `api_key=${TMDB_KEY}&language=it-IT&vote_count.gte=5&popularity.gte=10${noRomFam}&sort_by=popularity.desc`;
+
+    // Fascia B: prendiamo anche pagina 2 perché titoli come DTF St. Louis
+    // hanno popolarità ~20 e finiscono oltre i primi 20 risultati
+    const [movARes, tvARes, movBRes, tvBRes, movB2Res, tvB2Res] = await Promise.all([
+      fetch(`${base}/movie?${qA}&primary_release_date.gte=${from6mStr}&primary_release_date.lte=${toStr}`),
+      fetch(`${base}/tv?${qA}&first_air_date.gte=${from6mStr}&first_air_date.lte=${toStr}`),
+      fetch(`${base}/movie?${qB}&primary_release_date.gte=${from8wStr}&primary_release_date.lte=${toStr}&page=1`),
+      fetch(`${base}/tv?${qB}&first_air_date.gte=${from8wStr}&first_air_date.lte=${toStr}&page=1`),
+      fetch(`${base}/movie?${qB}&primary_release_date.gte=${from8wStr}&primary_release_date.lte=${toStr}&page=2`),
+      fetch(`${base}/tv?${qB}&first_air_date.gte=${from8wStr}&first_air_date.lte=${toStr}&page=2`),
     ]);
 
-    const movData = movRes.ok ? await movRes.json() : {};
-    const tvData  = tvRes.ok  ? await tvRes.json()  : {};
+    const toItem = (x, mediaType, dateKey) => ({
+      id:        `${mediaType === 'Film' ? 'movie' : 'tv'}-${x.id}`,
+      type:      'movie',
+      mediaType,
+      title:     x.title || x.name || x.original_title || x.original_name,
+      overview:  (x.overview || '').slice(0, 200),
+      rating:    Math.round((x.vote_average || 0) * 10) / 10,
+      poster:    x.poster_path ? `https://image.tmdb.org/t/p/w300${x.poster_path}` : null,
+      date:      x[dateKey],
+      link:      `https://www.themoviedb.org/${mediaType === 'Film' ? 'movie' : 'tv'}/${x.id}`,
+    });
+
+    const seen = new Set();
+    const addUniq = (arr) => arr.filter(x => { if (seen.has(x.id)) return false; seen.add(x.id); return true; });
+
+    const movA  = movARes.ok  ? (await movARes.json()).results  || [] : [];
+    const tvA   = tvARes.ok   ? (await tvARes.json()).results   || [] : [];
+    const movB1 = movBRes.ok  ? (await movBRes.json()).results  || [] : [];
+    const tvB1  = tvBRes.ok   ? (await tvBRes.json()).results   || [] : [];
+    const movB2 = movB2Res.ok ? (await movB2Res.json()).results || [] : [];
+    const tvB2  = tvB2Res.ok  ? (await tvB2Res.json()).results  || [] : [];
 
     const candidates = [
-      ...(movData.results || []).slice(0, 20).map(m => ({
-        id:        `movie-${m.id}`,
-        type:      'movie',
-        mediaType: 'Film',
-        title:     m.title || m.original_title,
-        overview:  (m.overview || '').slice(0, 200),
-        rating:    Math.round((m.vote_average || 0) * 10) / 10,
-        poster:    m.poster_path ? `https://image.tmdb.org/t/p/w300${m.poster_path}` : null,
-        date:      m.release_date,
-        link:      `https://www.themoviedb.org/movie/${m.id}`,
-      })),
-      ...(tvData.results || []).slice(0, 20).map(t => ({
-        id:        `tv-${t.id}`,
-        type:      'movie',
-        mediaType: 'Serie TV',
-        title:     t.name || t.original_name,
-        overview:  (t.overview || '').slice(0, 200),
-        rating:    Math.round((t.vote_average || 0) * 10) / 10,
-        poster:    t.poster_path ? `https://image.tmdb.org/t/p/w300${t.poster_path}` : null,
-        date:      t.first_air_date,
-        link:      `https://www.themoviedb.org/tv/${t.id}`,
-      })),
+      ...addUniq(movA.slice(0, 20)).map(x => toItem(x, 'Film',     'release_date')),
+      ...addUniq(tvA.slice(0,  20)).map(x => toItem(x, 'Serie TV', 'first_air_date')),
+      ...addUniq([...movB1, ...movB2].slice(0, 25)).map(x => toItem(x, 'Film',     'release_date')),
+      ...addUniq([...tvB1,  ...tvB2].slice(0,  25)).map(x => toItem(x, 'Serie TV', 'first_air_date')),
     ];
 
     if (candidates.length === 0) {
@@ -106,7 +116,7 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           model: 'llama-3.3-70b-versatile',
           temperature: 0.1,
-          max_tokens: 250,
+          max_tokens: 350,
           messages: [
             {
               role: 'system',
