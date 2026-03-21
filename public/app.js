@@ -4,14 +4,15 @@
 //  PULSE — Personal Feed  |  app.js
 // ============================================================
 
-// ---- API BASE (Netlify functions) --------------------------
-// Su Netlify e localhost le API sono relative.
-// Su GitHub Pages (o qualsiasi altro host) puntano al sito Netlify.
-const NETLIFY_BASE = 'https://whimsical-blini-c901e3.netlify.app';
+// ---- API BASE ----------------------------------------------
+// Su Vercel e localhost le functions sono sullo stesso host → path relativo.
+// Su GitHub Pages punta al backend Vercel.
+const BACKEND_BASE = 'https://feedes.vercel.app';
 const API_BASE = (() => {
   const h = location.hostname;
-  if (h === 'localhost' || h === '127.0.0.1' || h.endsWith('.netlify.app')) return '';
-  return NETLIFY_BASE;
+  if (h === 'localhost' || h === '127.0.0.1' ||
+      h.endsWith('.netlify.app') || h.endsWith('.vercel.app')) return '';
+  return BACKEND_BASE;
 })();
 
 // ---- CONFIG ------------------------------------------------
