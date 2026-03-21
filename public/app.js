@@ -331,15 +331,14 @@ async function refreshDiscogs(updateFeed = true) {
   localStorage.setItem('discogs_page_idx', String(pageOffset));
   const page = pageOffset + 3; // pagine 3–22
 
-  // Stili con anno 70s forzato vs stili liberi
-  const SEVENTIES_STYLES = ['Soundtrack', 'Soul', 'Funk'];
-  const priorityStyles   = ['Soul', 'Funk', 'Soundtrack'];
+  // Soul, Funk, Soundtrack: filtro anni 60-80 lato client (decade aurea)
+  const VINTAGE_STYLES = ['Soundtrack', 'Soul', 'Funk'];
+  const priorityStyles = ['Soul', 'Funk', 'Soundtrack'];
 
   for (const style of CONFIG.DISCOGS_STYLES.slice(0, 6)) {
-    const perPage   = priorityStyles.includes(style) ? 35 : 18;
-    const yearParam = SEVENTIES_STYLES.includes(style) ? '&decade=70s' : '';
+    const perPage = priorityStyles.includes(style) ? 40 : 20;
     const data = await apiGet(
-      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=${perPage}&page=${page}${yearParam}&format=Vinyl`,
+      `https://api.discogs.com/database/search?style=${encodeURIComponent(style)}&sort=want&sort_order=desc&per_page=${perPage}&page=${page}&format=Vinyl`,
       headers
     );
     await sleep(600);
@@ -348,6 +347,9 @@ async function refreshDiscogs(updateFeed = true) {
       const have = r.community?.have || 0;
       const want = r.community?.want || 0;
       if (have < 30 || have > 2000 || want < 50) continue;
+      // Per Soul, Funk, Soundtrack preferisce anni 60-85 (filtro morbido: scarta solo se fuori range E c'è un anno)
+      const yr = parseInt(r.year);
+      if (VINTAGE_STYLES.includes(style) && yr && (yr < 1960 || yr > 1985)) continue;
       seen.add(r.id);
       const cover = r.cover_image;
       if (cover?.includes('spacer')) continue;
