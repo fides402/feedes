@@ -466,6 +466,26 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   opacity: 0.45;
   cursor: default;
 }
+.discogs-refresh-bar-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.discogs-refresh-bar-btn:hover:not(:disabled) {
+  background: var(--orange);
+  color: #fff;
+  border-color: var(--orange);
+}
+.discogs-refresh-bar-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 /* ====== PANEL ====== */
 .panel-overlay {

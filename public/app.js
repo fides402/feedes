@@ -597,6 +597,12 @@ function renderFeed() {
       });
     });
   } else {
+    // Nel tab Dischi mostra il pulsante aggiorna in cima
+    if (currentCat === 'discogs') {
+      html += `<div class="discogs-refresh-bar" style="grid-column:1/-1;padding:8px 2px 4px">
+        <button class="discogs-refresh-bar-btn" id="discogs-refresh-btn" onclick="refreshDiscogs()">↻ Aggiorna dischi</button>
+      </div>`;
+    }
     items.forEach(item => {
       html += currentCat === 'newmusic' && item.cover && !item.image
         ? renderNewMusicDiscogs(item)
