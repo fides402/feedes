@@ -100,7 +100,8 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: corsHeaders, body: empty };
     }
 
-    // Groq: lista compatta per non sprecare token
+    // Groq: lista compatta — il rating viene omesso per non condizionare
+    // il giudizio su titoli recenti con pochi voti ancora provvisori
     const listText = candidates
       .map((m, i) => `${i + 1}.[${m.id}] ${m.title} (${(m.date || '').slice(0, 4)}) — ${m.overview}`)
       .join('\n');
@@ -120,11 +121,23 @@ exports.handler = async (event) => {
           messages: [
             {
               role: 'system',
-              content: `${FRUSCIANTE_PROFILE}\n\nSei un filtro LARGO di raccomandazioni. Tutti i titoli in lista hanno già voto TMDB ≥7, quindi il voto alto è garanzia di qualità sufficiente. Il tuo compito è ESCLUDERE solo i titoli palesemente incompatibili col profilo (commedie romantiche banali, film per bambini convenzionali, blockbuster d'azione puri senza spessore). Tutto il resto — anche se non perfettamente nel profilo — INCLUDILO. Assicurati di includere varietà di generi: non solo horror, ma anche thriller, drama, animazione, fantascienza, commedia nera, ecc. Meglio includere qualcosa in più che perdere titoli buoni. Rispondi SOLO con un array JSON di ID, es: ["movie-123","tv-456"]. Zero altro testo.`,
+              content: `${FRUSCIANTE_PROFILE}
+
+Sei un filtro LARGO di raccomandazioni cinematografiche. Regole:
+
+1. INCLUDI liberamente: thriller, dark comedy, horror, drama, crime, sci-fi, animazione adulta, film d'autore, documentari musicali/artistici, serie con tono oscuro o provocatorio, thriller psicologici, commedia nera, anche se hanno elementi romantici PURCHÉ il tono generale non sia romantico-sentimentale convenzionale.
+
+2. ESCLUDI solo l'ovviamente incompatibile: soap opera romantiche, film per bambini senza ironia, commedia romantica leggera, reality show, sport puri senza narrativa.
+
+3. IMPORTANTE — voti provvisori: alcuni titoli sono usciti da meno di 8 settimane e hanno rating TMDB ancora basso o provvisorio. Valutali ESCLUSIVAMENTE sul concept e sulla descrizione, NON sul numero di voti. Un thriller dark comedy con cast di qualità va incluso anche se ha pochi voti.
+
+4. Varietà: includi un mix di generi, non solo horror. Meglio abbondare che escludere per eccesso di prudenza.
+
+Rispondi SOLO con un array JSON di ID, es: ["movie-123","tv-456"]. Zero altro testo.`,
             },
             {
               role: 'user',
-              content: `Nuove uscite (tutte con voto ≥7):\n${listText}\n\nArray JSON degli ID da tenere (escludi solo l'ovviamente incompatibile, mantieni varietà di generi):`,
+              content: `Lista titoli recenti (alcuni con rating provvisorio per pochi voti TMDB):\n${listText}\n\nArray JSON degli ID da includere:`,
             },
           ],
         }),
