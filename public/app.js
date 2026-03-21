@@ -230,8 +230,8 @@ async function fetchRSSFeeds() {
 //  Film & Serie — nuove uscite streaming filtrate da Groq
 //  Cache giornaliera localStorage per preservare quota Groq
 // ============================================================
-// v3 — cambia questa stringa per fare cache bust su tutti i client
-const MOVIES_CACHE_VER = 'v3';
+// v4 — cambia questa stringa per fare cache bust su tutti i client
+const MOVIES_CACHE_VER = 'v4';
 
 async function fetchMovies() {
   const today    = new Date().toISOString().slice(0, 10);

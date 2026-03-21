@@ -33,25 +33,20 @@ exports.handler = async () => {
 
   try {
     const now  = new Date();
-    // Ultimi 3 mesi
+    // Ultimi 6 mesi — TMDB accumula voti lentamente per film recenti
     const from = new Date(now);
-    from.setMonth(from.getMonth() - 3);
+    from.setMonth(from.getMonth() - 6);
     const fromStr = from.toISOString().slice(0, 10);
     const toStr   = now.toISOString().slice(0, 10);
 
-    // Piattaforme streaming Italia: Netflix(8), Prime Video(119), Disney+(337),
-    // Apple TV+(350), Paramount+(531), NOW(39), MUBI(100)
-    const providers = '8%7C119%7C337%7C350%7C531%7C39%7C100';
     const base = 'https://api.themoviedb.org/3/discover';
 
-    // popularity.desc = titoli davvero in circolazione sulle piattaforme
-    // vote_count>=100 evita film oscuri con pochi voti gonfiati
-    // without_genres: esclude romance puro (10749) e family (10751) a monte
-    const commonQ = `api_key=${TMDB_KEY}&language=it-IT&watch_region=IT`
-      + `&with_watch_monetization_types=flatrate`
-      + `&with_watch_providers=${providers}`
-      + `&vote_average.gte=6.8&vote_count.gte=100`
-      + `&without_genres=10749%2C10751`   // no romance puro, no family
+    // Niente filtro provider: TMDB ha dati streaming Italia molto incompleti.
+    // Selezioniamo film/serie popolari di qualità — Groq poi filtra per gusto.
+    // without_genres esclude romance puro (10749) e family (10751) a monte.
+    const commonQ = `api_key=${TMDB_KEY}&language=it-IT`
+      + `&vote_average.gte=6.8&vote_count.gte=50`
+      + `&without_genres=10749%2C10751`
       + `&sort_by=popularity.desc`;
 
     const [movRes, tvRes] = await Promise.all([
@@ -63,7 +58,7 @@ exports.handler = async () => {
     const tvData  = tvRes.ok  ? await tvRes.json()  : {};
 
     const candidates = [
-      ...(movData.results || []).slice(0, 25).map(m => ({
+      ...(movData.results || []).slice(0, 20).map(m => ({
         id:        `movie-${m.id}`,
         type:      'movie',
         mediaType: 'Film',
@@ -74,7 +69,7 @@ exports.handler = async () => {
         date:      m.release_date,
         link:      `https://www.themoviedb.org/movie/${m.id}`,
       })),
-      ...(tvData.results || []).slice(0, 15).map(t => ({
+      ...(tvData.results || []).slice(0, 20).map(t => ({
         id:        `tv-${t.id}`,
         type:      'movie',
         mediaType: 'Serie TV',
